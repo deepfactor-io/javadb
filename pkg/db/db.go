@@ -174,6 +174,21 @@ func (db *DB) SelectIndexByArtifactIDAndGroupID(artifactID, groupID string) (typ
 	return index, nil
 }
 
+func (db *DB) SelectIndexByGAV(artifactID, groupID, version string) (types.Index, error) {
+	var index types.Index
+	row := db.client.QueryRow(`
+		SELECT a.group_id, a.artifact_id, i.version, i.sha1, i.archive_type, i.license
+		FROM indices i 
+		JOIN artifacts a ON a.id = i.artifact_id
+        WHERE a.group_id = ? AND a.artifact_id = ? AND i.version = ?`,
+		groupID, artifactID, version)
+	err := row.Scan(&index.GroupID, &index.ArtifactID, &index.Version, &index.SHA1, &index.ArchiveType, &index.License)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return index, xerrors.Errorf("select index error: %w", err)
+	}
+	return index, nil
+}
+
 func (db *DB) SelectIndexesByArtifactIDAndFileType(artifactID string, fileType types.ArchiveType) ([]types.Index,
 	error) {
 	var indexes []types.Index
