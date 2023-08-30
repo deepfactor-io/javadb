@@ -4,20 +4,23 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
 	"golang.org/x/xerrors"
 	"k8s.io/utils/clock"
 
-	"github.com/aquasecurity/trivy-java-db/pkg/crawler"
-	"github.com/aquasecurity/trivy-java-db/pkg/db"
-	"github.com/aquasecurity/trivy-java-db/pkg/fileutil"
-	"github.com/aquasecurity/trivy-java-db/pkg/types"
+	"github.com/deepfactor-io/javadb/pkg/crawler"
+	"github.com/deepfactor-io/javadb/pkg/db"
+	"github.com/deepfactor-io/javadb/pkg/fileutil"
+	"github.com/deepfactor-io/javadb/pkg/types"
 )
 
 const updateInterval = time.Hour * 72 // 3 days
+const licenseStringLimit = 150
 
 type Builder struct {
 	db    db.DB
@@ -34,7 +37,20 @@ func NewBuilder(db db.DB, meta db.Client) Builder {
 }
 
 func (b *Builder) Build(cacheDir string) error {
-	indexDir := filepath.Join(cacheDir, "indexes")
+	indexDir := filepath.Join(cacheDir, types.IndexesDir)
+	licenseDir := filepath.Join(cacheDir, types.LicenseDir)
+
+	licenseFile, err := os.Open(licenseDir + types.NormalizedlicenseFileName)
+	if err != nil {
+		xerrors.Errorf("failed to open normalized license file: %w", err)
+	}
+
+	licenseMap := make(map[string]string)
+
+	if err := json.NewDecoder(licenseFile).Decode(&licenseMap); err != nil {
+		return xerrors.Errorf("failed to decode license file: %w", err)
+	}
+
 	count, err := fileutil.Count(indexDir)
 	if err != nil {
 		return xerrors.Errorf("count error: %w", err)
@@ -56,6 +72,7 @@ func (b *Builder) Build(cacheDir string) error {
 				Version:     ver.Version,
 				SHA1:        ver.SHA1,
 				ArchiveType: index.ArchiveType,
+				License:     b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
 			})
 		}
 		bar.Increment()
@@ -91,4 +108,31 @@ func (b *Builder) Build(cacheDir string) error {
 	}
 
 	return nil
+}
+
+// processLicenseInformationFromCache : gets cached license information by license key and updates the records to be inserted
+func (b *Builder) processLicenseInformationFromCache(license, licenseDir string, licenseMap map[string]string) string {
+	var updatedLicenseList []string
+	// process license information
+	for _, l := range strings.Split(license, "|") {
+		if val, ok := licenseMap[l]; ok {
+			val = strings.TrimSpace(val)
+			updatedLicenseList = append(updatedLicenseList, val)
+		}
+	}
+
+	// precautionary check
+	// return first <licenseStringLimit> characters if license string is too long
+	result := strings.Join(updatedLicenseList, "|")
+	if len(result) > licenseStringLimit {
+		r := []rune(result)
+		if len(r) > licenseStringLimit {
+			log.Printf("untrimmed license string: %s", result)
+			return string(r[:licenseStringLimit])
+		}
+
+	}
+
+	return result
+
 }
