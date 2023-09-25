@@ -565,6 +565,8 @@ func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string
 
 	// normalize github urls so that raw content is downloaded
 	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
+
+	// TODO: Check if we need to use a github url parser library for the same
 	if strings.HasPrefix(licenseMeta.URL, githubURL) {
 		// remove blob from url
 		licenseMeta.URL = strings.Replace(licenseMeta.URL, githubBlob, "/", 1)
