@@ -29,6 +29,9 @@ import (
 )
 
 const mavenRepoURL = "https://repo.maven.apache.org/maven2/"
+const githubURL = "https://github.com"
+const githubRawURL = "https://raw.githubusercontent.com"
+const githubBlob = "/blob/"
 
 type Crawler struct {
 	dir        string
@@ -559,6 +562,18 @@ func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string
 	}
 
 	defer f.Close()
+
+	// normalize github urls so that raw content is downloaded
+	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
+	if strings.HasPrefix(licenseMeta.URL, githubURL) {
+		// remove blob from url
+		licenseMeta.URL = strings.Replace(licenseMeta.URL, githubBlob, "/", 1)
+
+		// raw url
+		licenseMeta.URL = strings.TrimPrefix(licenseMeta.URL, githubURL)
+		licenseMeta.URL = githubRawURL + licenseMeta.URL
+
+	}
 
 	// download license url contents
 	resp, err := client.Get(licenseMeta.URL)
