@@ -15,7 +15,7 @@ import (
 
 const (
 	dbFileName    = "trivy-java.db"
-	SchemaVersion = 2 // Updated version with java license information
+	SchemaVersion = 1
 )
 
 type DB struct {
