@@ -50,5 +50,5 @@ jobs:
         run: |
           oras version
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
-          ghcr.io/${{ github.repository }}:${ github.branch } \
+          ghcr.io/${{ github.repository }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
