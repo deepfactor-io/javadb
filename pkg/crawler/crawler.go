@@ -396,6 +396,11 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 	if results.Len() > 0 {
 		for _, r := range results {
 			if licenseVal, ok := filesLicenseMap[r.Filename]; ok {
+				// skip non license detection results
+				if r.MatchType != "License" {
+					continue
+				}
+
 				// since results are sorted, we can skip processing of data with confidence <90%
 				if r.Confidence < 0.9 {
 					break
@@ -403,6 +408,12 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 
 				// skip processing since a higher confidence result is already processed
 				if licenseVal.ClassificationConfidence > r.Confidence {
+					// since there are multiple matches available with confidence > 90% , fallback to license name if available
+					// else pick highest confidence match
+					if len(licenseVal.Name) > 0 {
+						// rest license key so that it fallsback to name
+						delete(normalizedLicenseMap, licenseVal.LicenseKey)
+					}
 					continue
 				}
 
