@@ -29,6 +29,9 @@ import (
 )
 
 const mavenRepoURL = "https://repo.maven.apache.org/maven2/"
+const githubURL = "https://github.com"
+const githubRawURL = "https://raw.githubusercontent.com"
+const githubBlob = "/blob/"
 
 type Crawler struct {
 	dir        string
@@ -396,6 +399,11 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 	if results.Len() > 0 {
 		for _, r := range results {
 			if licenseVal, ok := filesLicenseMap[r.Filename]; ok {
+				// skip non license detection results
+				if r.MatchType != "License" {
+					continue
+				}
+
 				// since results are sorted, we can skip processing of data with confidence <90%
 				if r.Confidence < 0.9 {
 					break
@@ -403,6 +411,12 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 
 				// skip processing since a higher confidence result is already processed
 				if licenseVal.ClassificationConfidence > r.Confidence {
+					// since there are multiple matches available with confidence > 90% , fallback to license name if available
+					// else pick highest confidence match
+					if len(licenseVal.Name) > 0 {
+						// rest license key so that it fallsback to name
+						delete(normalizedLicenseMap, licenseVal.LicenseKey)
+					}
 					continue
 				}
 
@@ -548,6 +562,20 @@ func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string
 	}
 
 	defer f.Close()
+
+	// normalize github urls so that raw content is downloaded
+	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
+
+	// TODO: Check if we need to use a github url parser library for the same
+	if strings.HasPrefix(licenseMeta.URL, githubURL) {
+		// remove blob from url
+		licenseMeta.URL = strings.Replace(licenseMeta.URL, githubBlob, "/", 1)
+
+		// raw url
+		licenseMeta.URL = strings.TrimPrefix(licenseMeta.URL, githubURL)
+		licenseMeta.URL = githubRawURL + licenseMeta.URL
+
+	}
 
 	// download license url contents
 	resp, err := client.Get(licenseMeta.URL)
