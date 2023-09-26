@@ -15,7 +15,7 @@ import (
 
 const (
 	dbFileName    = "trivy-java.db"
-	SchemaVersion = 2 // Update schema version to force db refresh for new scans
+	SchemaVersion = 2 // Update schema version in case of schema changes
 )
 
 type DB struct {
