@@ -3,7 +3,6 @@ name: Trivy Java DB
 on:
   schedule:
     - cron: "0 0 * * *" # update indexes every day in 00:00
-  workflow_dispatch:
 env:
   GH_USER: aqua-bot
   DB_VERSION: 2   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
