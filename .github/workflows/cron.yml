@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 env:
   GH_USER: aqua-bot
-  DB_VERSION: 3.3.3 # Hardcoded value to be replaced later by version passed through build pipeline
-permissions:
+  DB_VERSION: 2   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
   packages: write # for GHCR
   contents: read
 jobs:
