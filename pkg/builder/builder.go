@@ -73,6 +73,7 @@ func (b *Builder) Build(cacheDir string) error {
 				SHA1:        ver.SHA1,
 				ArchiveType: index.ArchiveType,
 				License:     b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
+				Dependency:  ver.Dependency,
 			})
 		}
 		bar.Increment()

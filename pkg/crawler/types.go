@@ -22,19 +22,21 @@ type Index struct {
 	ArchiveType types.ArchiveType
 }
 type Version struct {
-	Version string
-	SHA1    []byte
-	License string
+	Version    string
+	SHA1       []byte
+	License    string
+	Dependency string
 }
 
 type PomProject struct {
-	GroupID     string    `xml:"groupId"`
-	ArtifactID  string    `xml:"artifactId"`
-	Version     string    `xml:"version"`
-	Name        string    `xml:"name"`
-	Description string    `xml:"description"`
-	URL         string    `xml:"url"`
-	Licenses    []License `xml:"licenses>license"`
+	GroupID      string       `xml:"groupId"`
+	ArtifactID   string       `xml:"artifactId"`
+	Version      string       `xml:"version"`
+	Name         string       `xml:"name"`
+	Description  string       `xml:"description"`
+	URL          string       `xml:"url"`
+	Licenses     []License    `xml:"licenses>license"`
+	Dependencies []Dependency `xml:"dependencies>dependency"`
 }
 
 type License struct {
@@ -42,4 +44,15 @@ type License struct {
 	URL                      string `xml:"url"`
 	LicenseKey               string
 	ClassificationConfidence float64
+}
+
+type Dependency struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+
+type PomParsedValues struct {
+	Licenses     []string
+	Dependencies []string
 }
