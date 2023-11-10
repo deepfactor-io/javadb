@@ -22,10 +22,10 @@ type Index struct {
 	ArchiveType types.ArchiveType
 }
 type Version struct {
-	Version    string
-	SHA1       []byte
-	License    string
-	Dependency string
+	Version      string
+	SHA1         []byte
+	License      string
+	Dependencies []Dependency
 }
 
 type PomProject struct {
@@ -54,5 +54,5 @@ type Dependency struct {
 
 type PomParsedValues struct {
 	Licenses     []string
-	Dependencies []string
+	Dependencies []Dependency
 }

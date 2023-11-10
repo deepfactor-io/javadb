@@ -13,11 +13,18 @@ const (
 )
 
 type Index struct {
-	GroupID     string
-	ArtifactID  string
-	Version     string
-	SHA1        []byte
-	ArchiveType ArchiveType
-	License     string
-	Dependency  string
+	GroupID      string
+	ArtifactID   string
+	Version      string
+	SHA1         []byte
+	ArchiveType  ArchiveType
+	License      string
+	Dependencies []Dependency
+	Dependency   string
+}
+
+type Dependency struct {
+	GroupID    string
+	ArtifactID string
+	Version    string
 }

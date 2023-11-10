@@ -233,10 +233,10 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			dependencies := parsedPomValues.Dependencies
 
 			v := Version{
-				Version:    version,
-				SHA1:       sha1,
-				License:    strings.Join(licenseKeys, "|"),
-				Dependency: strings.Join(dependencies, ", "),
+				Version:      version,
+				SHA1:         sha1,
+				License:      strings.Join(licenseKeys, "|"),
+				Dependencies: dependencies,
 			}
 
 			versions = append(versions, v)
@@ -356,10 +356,7 @@ func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error
 		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
 	}
 
-	for _, dep := range pomProject.Dependencies {
-		depString := fmt.Sprintf("%s:%s:%s", dep.GroupID, dep.ArtifactID, dep.Version)
-		pomParsedValues.Dependencies = append(pomParsedValues.Dependencies, depString)
-	}
+	pomParsedValues.Dependencies = pomProject.Dependencies
 
 	return pomParsedValues, nil
 

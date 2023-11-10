@@ -2,6 +2,7 @@ package builder
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -37,6 +38,7 @@ func NewBuilder(db db.DB, meta db.Client) Builder {
 }
 
 func (b *Builder) Build(cacheDir string) error {
+	startTime := time.Now()
 	indexDir := filepath.Join(cacheDir, types.IndexesDir)
 	licenseDir := filepath.Join(cacheDir, types.LicenseDir)
 
@@ -57,7 +59,7 @@ func (b *Builder) Build(cacheDir string) error {
 	}
 	bar := pb.StartNew(count)
 	defer log.Println("Build completed")
-	defer bar.Finish()
+	// defer bar.Finish()
 
 	var indexes []types.Index
 	if err := fileutil.Walk(indexDir, func(r io.Reader, path string) error {
@@ -66,14 +68,22 @@ func (b *Builder) Build(cacheDir string) error {
 			return xerrors.Errorf("failed to decode index: %w", err)
 		}
 		for _, ver := range index.Versions {
+			depArray := make([]types.Dependency, 0)
+			for _, dep := range ver.Dependencies {
+				depArray = append(depArray, types.Dependency{
+					GroupID:    dep.GroupID,
+					ArtifactID: dep.ArtifactID,
+					Version:    dep.Version,
+				})
+			}
 			indexes = append(indexes, types.Index{
-				GroupID:     index.GroupID,
-				ArtifactID:  index.ArtifactID,
-				Version:     ver.Version,
-				SHA1:        ver.SHA1,
-				ArchiveType: index.ArchiveType,
-				License:     b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
-				Dependency:  ver.Dependency,
+				GroupID:      index.GroupID,
+				ArtifactID:   index.ArtifactID,
+				Version:      ver.Version,
+				SHA1:         ver.SHA1,
+				ArchiveType:  index.ArchiveType,
+				License:      b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
+				Dependencies: depArray,
 			})
 		}
 		bar.Increment()
@@ -94,6 +104,63 @@ func (b *Builder) Build(cacheDir string) error {
 		return xerrors.Errorf("failed to insert index to db: %w", err)
 	}
 
+	bar.Finish()
+
+	fmt.Println("Inserting dependencies now .......")
+	bar2 := pb.StartNew(count)
+	defer bar2.Finish()
+
+	// Insert dependencies
+	indexes = []types.Index{}
+	if err := fileutil.Walk(indexDir, func(r io.Reader, path string) error {
+		index := &crawler.Index{}
+		if err := json.NewDecoder(r).Decode(index); err != nil {
+			return xerrors.Errorf("failed to decode index: %w", err)
+		}
+		for _, ver := range index.Versions {
+			depArray := make([]types.Dependency, 0)
+			for _, dep := range ver.Dependencies {
+				depArray = append(depArray, types.Dependency{
+					GroupID:    dep.GroupID,
+					ArtifactID: dep.ArtifactID,
+					Version:    dep.Version,
+				})
+			}
+			indexes = append(indexes, types.Index{
+				GroupID:      index.GroupID,
+				ArtifactID:   index.ArtifactID,
+				Version:      ver.Version,
+				Dependencies: depArray,
+			})
+		}
+		bar2.Increment()
+
+		if len(indexes) > 10 {
+			for _, index := range indexes {
+				for _, dep := range index.Dependencies {
+					if err = b.db.InsertDependencies(index, dep); err != nil {
+						fmt.Errorf("unable to insert to 'dependencies' table: %w", err)
+					}
+				}
+			}
+
+			indexes = []types.Index{}
+			return nil
+		}
+		return nil
+	}); err != nil {
+		return xerrors.Errorf("walk error: %w", err)
+	}
+
+	// Insert the remaining index dependencies
+	for _, index := range indexes {
+		for _, dep := range index.Dependencies {
+			if err = b.db.InsertDependencies(index, dep); err != nil {
+				fmt.Errorf("unable to insert to 'dependencies' table: %w", err)
+			}
+		}
+	}
+
 	if err := b.db.VacuumDB(); err != nil {
 		return xerrors.Errorf("fauled to vacuum db: %w", err)
 	}
@@ -107,6 +174,16 @@ func (b *Builder) Build(cacheDir string) error {
 	if err := b.meta.Update(metaDB); err != nil {
 		return xerrors.Errorf("failed to update metadata: %w", err)
 	}
+
+	// Calculate the elapsed time
+	elapsedTime := time.Since(startTime)
+
+	// Print the time taken
+	fmt.Println("=============================================================")
+	fmt.Println("=============================================================")
+	fmt.Printf("This action took %s to run.\n", elapsedTime)
+	fmt.Println("=============================================================")
+	fmt.Println("=============================================================")
 
 	return nil
 }
