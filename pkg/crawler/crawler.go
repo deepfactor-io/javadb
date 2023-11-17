@@ -219,19 +219,24 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 		}
 		if len(sha1) != 0 {
 
-			// fetch license information on the basis of pom url
+			// fetch license & dep information on the basis of pom url
 			pomURL := getPomURL(baseURL, meta.ArtifactID, version)
-			licenseKeys, err := c.fetchAndSavePOMLicenseKeys(pomURL)
+			parsedPomValues, err := c.parsePomForLicensesAndDeps(pomURL)
 			if err != nil {
 				log.Println(err)
 			}
+
+			licenseKeys := parsedPomValues.Licenses
 			licenseKeys = lo.Uniq(licenseKeys)
 			sort.Strings(licenseKeys)
 
+			dependencies := parsedPomValues.Dependencies
+
 			v := Version{
-				Version: version,
-				SHA1:    sha1,
-				License: strings.Join(licenseKeys, "|"),
+				Version:      version,
+				SHA1:         sha1,
+				License:      strings.Join(licenseKeys, "|"),
+				Dependencies: dependencies,
 			}
 
 			versions = append(versions, v)
@@ -317,14 +322,14 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 	return sha1b, nil
 }
 
-func (c *Crawler) fetchAndSavePOMLicenseKeys(url string) ([]string, error) {
-	var keys []string
+func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
+	var pomParsedValues PomParsedValues
 	resp, err := c.http.Get(url)
 	if resp.StatusCode == http.StatusNotFound {
-		return keys, nil
+		return pomParsedValues, nil
 	}
 	if err != nil {
-		return keys, xerrors.Errorf("can't get pom xml from %s: %w", url, err)
+		return pomParsedValues, xerrors.Errorf("can't get pom xml from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -335,11 +340,11 @@ func (c *Crawler) fetchAndSavePOMLicenseKeys(url string) ([]string, error) {
 	err = decoder.Decode(&pomProject)
 
 	if err != nil {
-		return keys, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
+		return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
 	}
 
 	if len(pomProject.Licenses) == 0 {
-		return keys, nil
+		return pomParsedValues, nil
 	}
 
 	for _, l := range pomProject.Licenses {
@@ -348,10 +353,12 @@ func (c *Crawler) fetchAndSavePOMLicenseKeys(url string) ([]string, error) {
 		// update uniqueLicenseKeys map
 		c.uniqueLicenseKeys.Set(l.LicenseKey, l)
 
-		keys = append(keys, l.LicenseKey)
+		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
 	}
 
-	return keys, nil
+	pomParsedValues.Dependencies = pomProject.Dependencies
+
+	return pomParsedValues, nil
 
 }
 

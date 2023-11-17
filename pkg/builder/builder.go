@@ -37,6 +37,7 @@ func NewBuilder(db db.DB, meta db.Client) Builder {
 }
 
 func (b *Builder) Build(cacheDir string) error {
+
 	indexDir := filepath.Join(cacheDir, types.IndexesDir)
 	licenseDir := filepath.Join(cacheDir, types.LicenseDir)
 
@@ -55,9 +56,9 @@ func (b *Builder) Build(cacheDir string) error {
 	if err != nil {
 		return xerrors.Errorf("count error: %w", err)
 	}
-	bar := pb.StartNew(count)
+
+	indexBar := pb.StartNew(count)
 	defer log.Println("Build completed")
-	defer bar.Finish()
 
 	var indexes []types.Index
 	if err := fileutil.Walk(indexDir, func(r io.Reader, path string) error {
@@ -66,16 +67,25 @@ func (b *Builder) Build(cacheDir string) error {
 			return xerrors.Errorf("failed to decode index: %w", err)
 		}
 		for _, ver := range index.Versions {
+			depArray := make([]types.Dependency, 0)
+			for _, dep := range ver.Dependencies {
+				depArray = append(depArray, types.Dependency{
+					GroupID:    dep.GroupID,
+					ArtifactID: dep.ArtifactID,
+					Version:    dep.Version,
+				})
+			}
 			indexes = append(indexes, types.Index{
-				GroupID:     index.GroupID,
-				ArtifactID:  index.ArtifactID,
-				Version:     ver.Version,
-				SHA1:        ver.SHA1,
-				ArchiveType: index.ArchiveType,
-				License:     b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
+				GroupID:      index.GroupID,
+				ArtifactID:   index.ArtifactID,
+				Version:      ver.Version,
+				SHA1:         ver.SHA1,
+				ArchiveType:  index.ArchiveType,
+				License:      b.processLicenseInformationFromCache(ver.License, licenseDir, licenseMap),
+				Dependencies: depArray,
 			})
 		}
-		bar.Increment()
+		indexBar.Increment()
 
 		if len(indexes) > 1000 {
 			if err = b.db.InsertIndexes(indexes); err != nil {
@@ -91,6 +101,54 @@ func (b *Builder) Build(cacheDir string) error {
 	// Insert the remaining indexes
 	if err = b.db.InsertIndexes(indexes); err != nil {
 		return xerrors.Errorf("failed to insert index to db: %w", err)
+	}
+
+	indexBar.Finish()
+
+	depBar := pb.StartNew(count)
+	defer depBar.Finish()
+
+	// Insert dependencies
+	indexes = []types.Index{}
+	if err := fileutil.Walk(indexDir, func(r io.Reader, path string) error {
+		index := &crawler.Index{}
+		if err := json.NewDecoder(r).Decode(index); err != nil {
+			return xerrors.Errorf("failed to decode index: %w", err)
+		}
+		for _, ver := range index.Versions {
+			depArray := make([]types.Dependency, 0)
+			for _, dep := range ver.Dependencies {
+				depArray = append(depArray, types.Dependency{
+					GroupID:    dep.GroupID,
+					ArtifactID: dep.ArtifactID,
+					Version:    dep.Version,
+				})
+			}
+			indexes = append(indexes, types.Index{
+				GroupID:      index.GroupID,
+				ArtifactID:   index.ArtifactID,
+				Version:      ver.Version,
+				Dependencies: depArray,
+			})
+		}
+		depBar.Increment()
+
+		if len(indexes) > 1000 {
+			if err = b.db.InsertDependencies(indexes); err != nil {
+				return xerrors.Errorf("failed to insert dependency to db: %w", err)
+			}
+
+			indexes = []types.Index{}
+			return nil
+		}
+		return nil
+	}); err != nil {
+		return xerrors.Errorf("walk error: %w", err)
+	}
+
+	// Insert the remaining dependencies
+	if err = b.db.InsertDependencies(indexes); err != nil {
+		return xerrors.Errorf("failed to insert dependency to db: %w", err)
 	}
 
 	if err := b.db.VacuumDB(); err != nil {
