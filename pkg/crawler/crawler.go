@@ -215,7 +215,8 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 		sha1FileName := fmt.Sprintf("/%s-%s.jar.sha1", meta.ArtifactID, version)
 		sha1, err := c.fetchSHA1(baseURL + version + sha1FileName)
 		if err != nil {
-			return err
+			log.Printf("error in fetchSHA1. Error: %s", err)
+			continue
 		}
 		if len(sha1) != 0 {
 
