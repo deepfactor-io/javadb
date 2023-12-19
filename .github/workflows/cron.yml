@@ -28,9 +28,8 @@ jobs:
 
       - name: Get DB version
         id: get_version
-        run: echo "::set-output name=DB_VERSION::$(go run version.go)"
+        run: echo "DB_VERSION=$(grep -oP 'SchemaVersion = \K\d+' pkg/db/db.go)" >> $GITHUB_OUTPUT
       
-
       - name: Build the binary
         run: make build
 
