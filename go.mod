@@ -8,7 +8,7 @@ require (
 	github.com/google/licenseclassifier/v2 v2.0.0
 	github.com/hashicorp/go-retryablehttp v0.7.4
 	github.com/orcaman/concurrent-map/v2 v2.0.1
-	github.com/samber/lo v1.38.1
+	github.com/samber/lo v1.39.0
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.14.0
