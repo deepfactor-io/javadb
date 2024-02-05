@@ -5,7 +5,7 @@ on:
     - cron: "0 0 * * *" # update indexes every day in 00:00
 env:
   GH_USER: aqua-bot
-  DB_VERSION: 2   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
+  DB_VERSION: 3   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
   packages: write # for GHCR
   contents: read
 jobs:
@@ -37,6 +37,15 @@ jobs:
       - name: Move DB
         run: mv cache/db/javadb.tar.gz .
 
+      - name: Build dependency database
+        run: make dep-db-build
+
+      - name: Compress dependency database
+        run: make dep-db-compress
+
+      - name: Move Dependency DB
+        run: mv cache/dep-db/java-dependencydb.tar.gz .
+
       - name: Login to GitHub Packages Container registry
         uses: docker/login-action@v1
         with:
@@ -50,3 +59,4 @@ jobs:
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
           ghcr.io/${{ github.repository }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
+

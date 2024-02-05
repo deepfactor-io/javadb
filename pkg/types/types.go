@@ -19,4 +19,5 @@ type Index struct {
 	SHA1        []byte
 	ArchiveType ArchiveType
 	License     string
+	Dependency  string
 }
