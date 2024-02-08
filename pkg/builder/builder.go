@@ -112,19 +112,6 @@ func (b *Builder) Build(cacheDir string) error {
 
 func (b *Builder) BuildWithDependency(cacheDir string) error {
 	indexDir := filepath.Join(cacheDir, types.IndexesDir)
-	licenseDir := filepath.Join(cacheDir, types.LicenseDir)
-
-	licenseFile, err := os.Open(licenseDir + types.NormalizedlicenseFileName)
-	if err != nil {
-		xerrors.Errorf("failed to open normalized license file: %w", err)
-	}
-
-	licenseMap := make(map[string]string)
-
-	if err := json.NewDecoder(licenseFile).Decode(&licenseMap); err != nil {
-		return xerrors.Errorf("failed to decode license file: %w", err)
-	}
-
 	count, err := fileutil.Count(indexDir)
 	if err != nil {
 		return xerrors.Errorf("count error: %w", err)
