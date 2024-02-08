@@ -65,7 +65,7 @@ jobs:
         run: |
           oras version
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
-          ghcr.io/javadependencydb:${DB_VERSION} \
+          ghcr.io/deepfactor-io/javadependencydb:${DB_VERSION} \
           javadependencydb.tar.gz:application/vnd.aquasec.trivy.javadependencydb.layer.v1.tar+gzip
 
 
