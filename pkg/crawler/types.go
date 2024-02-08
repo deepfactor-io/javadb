@@ -22,8 +22,8 @@ type Index struct {
 	ArchiveType types.ArchiveType
 }
 type Version struct {
-	Version      string
-	SHA1         []byte
-	License      string
-	Dependencies []Dependency
+	Version    string
+	SHA1       []byte
+	License    string `json:",omitempty"`
+	Dependency string `json:",omitempty"`
 }
