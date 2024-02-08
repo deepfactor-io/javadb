@@ -44,7 +44,7 @@ jobs:
         run: make dep-db-compress
 
       - name: Move Dependency DB
-        run: mv cache/dep-db/java-dependencydb.tar.gz .
+        run: mv cache/dep-db/javadependencydb.tar.gz .
 
       - name: Login to GitHub Packages Container registry
         uses: docker/login-action@v1
@@ -59,4 +59,12 @@ jobs:
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
           ghcr.io/${{ github.repository }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
+
+      - name: Upload assets to GHCR
+        run: |
+          oras version
+          oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
+          ghcr.io/javadependencydb:${DB_VERSION} \
+          javadependencydb.tar.gz:application/vnd.aquasec.trivy.javadependencydb.layer.v1.tar+gzip
+
 
