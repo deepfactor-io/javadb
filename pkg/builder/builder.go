@@ -2,7 +2,6 @@ package builder
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -141,18 +140,13 @@ func (b *Builder) BuildWithDependency(cacheDir string) error {
 			return xerrors.Errorf("failed to decode index: %w", err)
 		}
 		for _, ver := range index.Versions {
-			depList := make([]string, 0)
-			for _, v := range ver.Dependencies {
-				depList = append(depList, fmt.Sprintf("%s:%s:%s", v.GroupID, v.ArtifactID, v.Version))
-			}
-
 			indexes = append(indexes, types.Index{
 				GroupID:     index.GroupID,
 				ArtifactID:  index.ArtifactID,
 				Version:     ver.Version,
 				SHA1:        ver.SHA1,
 				ArchiveType: index.ArchiveType,
-				Dependency:  strings.Join(depList, ","),
+				Dependency:  ver.Dependency,
 			})
 		}
 		bar.Increment()
