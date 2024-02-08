@@ -152,7 +152,7 @@ func (b *Builder) BuildWithDependency(cacheDir string) error {
 		bar.Increment()
 
 		if len(indexes) > 1000 {
-			if err = b.db.InsertIndexesWithJarDependencies(indexes); err != nil {
+			if err = b.db.InsertIndexesWithDependency(indexes); err != nil {
 				return xerrors.Errorf("failed to insert index to db: %w", err)
 			}
 			indexes = []types.Index{}
@@ -163,7 +163,7 @@ func (b *Builder) BuildWithDependency(cacheDir string) error {
 	}
 
 	// Insert the remaining indexes
-	if err = b.db.InsertIndexesWithJarDependencies(indexes); err != nil {
+	if err = b.db.InsertIndexesWithDependency(indexes); err != nil {
 		return xerrors.Errorf("failed to insert index to db: %w", err)
 	}
 

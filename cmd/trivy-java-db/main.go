@@ -49,7 +49,7 @@ var (
 		Use:   "dependency-build",
 		Short: "Build Java DB with dependencies",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return buildWithJarDependencies()
+			return buildWithDependency()
 		},
 	}
 )
@@ -101,17 +101,17 @@ func build() error {
 	return nil
 }
 
-func buildWithJarDependencies() error {
+func buildWithDependency() error {
 	if err := db.Reset(cacheDir); err != nil {
 		return xerrors.Errorf("db reset error: %w", err)
 	}
 	dbDir := filepath.Join(cacheDir, "dep-db")
 	log.Printf("Database path: %s", dbDir)
-	dbc, err := db.NewDbWithDependencies(dbDir)
+	dbc, err := db.NewDbWithDependency(dbDir)
 	if err != nil {
 		return xerrors.Errorf("db create error: %w", err)
 	}
-	if err = dbc.InitDbWithJarDependencies(); err != nil {
+	if err = dbc.InitDbWithDependency(); err != nil {
 		return xerrors.Errorf("db init error: %w", err)
 	}
 	meta := db.NewMetadata(dbDir)
