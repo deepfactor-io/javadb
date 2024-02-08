@@ -1,6 +1,7 @@
 ---
 name: Trivy Java DB
 on:
+  workflow_disptach:
   schedule:
     - cron: "0 0 * * *" # update indexes every day in 00:00
 env:
