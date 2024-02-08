@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	dependencyDbFileName = "df-java-dependencies.db"
+	dependencyDbFileName = "df-java-dependency.db"
 )
 
-func NewDbWithDependencies(cacheDir string) (DB, error) {
+func NewDbWithDependency(cacheDir string) (DB, error) {
 	dbPath := filepath.Join(cacheDir, dependencyDbFileName)
 	dbDir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dbDir, 0700); err != nil {
@@ -37,7 +37,7 @@ func NewDbWithDependencies(cacheDir string) (DB, error) {
 	}, nil
 }
 
-func (db *DB) InitDbWithJarDependencies() error {
+func (db *DB) InitDbWithDependency() error {
 	if _, err := db.client.Exec("CREATE TABLE artifacts(id INTEGER PRIMARY KEY, group_id TEXT, artifact_id TEXT)"); err != nil {
 		return xerrors.Errorf("unable to create 'artifacts' table: %w", err)
 	}
@@ -56,7 +56,7 @@ func (db *DB) InitDbWithJarDependencies() error {
 	return nil
 }
 
-func (db *DB) InsertIndexesWithJarDependencies(indexes []types.Index) error {
+func (db *DB) InsertIndexesWithDependency(indexes []types.Index) error {
 	if len(indexes) == 0 {
 		return nil
 	}
