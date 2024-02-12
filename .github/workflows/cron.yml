@@ -53,7 +53,7 @@ jobs:
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
 
       - name: clean javadb
-         run: make db-clean
+        run: make db-clean
 
       - name: Build dependency database
         run: make dep-db-build
