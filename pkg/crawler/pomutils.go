@@ -2,12 +2,12 @@ package crawler
 
 import (
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"golang.org/x/net/html/charset"
+	"golang.org/x/xerrors"
 )
 
 type PomParsedValues struct {
@@ -89,34 +89,32 @@ func preprocessXML(xmlData string) (string, error) {
 }
 
 func parseAndSubstitutePom(url string) (PomProject, error) {
-	// url := "https://repo1.maven.org/maven2/ae/teletronics/solr/solr-plugins/0.3/solr-plugins-0.3.pom"
 	var project PomProject
 
 	resp, err := http.Get(url)
+	if resp.StatusCode == http.StatusNotFound {
+		return project, nil
+	}
 	if err != nil {
-		fmt.Println("Error fetching POM file:", err)
-		return project, err
+		return project, xerrors.Errorf("can't get pom xml from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return project, err
+		return project, xerrors.Errorf("error reading response body from %s: %w", url, err)
 	}
 
 	xmlData, err := preprocessXML(string(body))
 	if err != nil {
-		fmt.Println("Error preprocessing XML:", err)
-		return project, err
+		return project, xerrors.Errorf("error preprocessing xml from %s: %w", url, err)
 	}
 
 	decoder := xml.NewDecoder(strings.NewReader(xmlData))
 	decoder.CharsetReader = charset.NewReaderLabel
 	err = decoder.Decode(&project)
 	if err != nil {
-		fmt.Println("Error decoding POM file:", err)
-		return project, err
+		return project, xerrors.Errorf("error decoding pom.xml from %s: %w", url, err)
 	}
 
 	substitutePlaceholders(&project)
