@@ -2,12 +2,12 @@ package crawler
 
 import (
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"golang.org/x/net/html/charset"
+	"golang.org/x/xerrors"
 )
 
 type PomParsedValues struct {
@@ -24,40 +24,34 @@ type PomProject struct {
 	URL          string       `xml:"url"`
 	Licenses     []License    `xml:"licenses>license"`
 	Dependencies []Dependency `xml:"dependencies>dependency"`
-	Properties   Properties   `xml:"properties"`
+	Properties   properties   `xml:"properties"`
 }
 
-type Properties struct {
-	Variables map[string]string `xml:",any"`
+type property struct {
+	XMLName xml.Name
+	Value   string `xml:",any"`
 }
 
-func (p *Properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.Variables = make(map[string]string)
+type properties map[string]string
+
+func (props *properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	*props = properties{}
 	for {
-		var e xml.Token
-		e, err := d.Token()
-		if err != nil {
+		var p property
+		err := d.Decode(&p)
+		if err == io.EOF {
+			break
+		} else if err != nil {
 			return err
 		}
 
-		switch elem := e.(type) {
-		case xml.StartElement:
-			key := strings.TrimPrefix(elem.Name.Local, "property.")
-			var value string
-			if err := d.DecodeElement(&value, &elem); err != nil {
-				return err
-			}
-			p.Variables[key] = value
-		case xml.EndElement:
-			if elem == start.End() {
-				return nil
-			}
-		}
+		(*props)[p.XMLName.Local] = p.Value
 	}
+	return nil
 }
 
 func substitutePlaceholders(project *PomProject) {
-	for key, value := range project.Properties.Variables {
+	for key, value := range project.Properties {
 		placeholder := "${" + key + "}"
 		// Substitute placeholders in dependencies
 		for i := range project.Dependencies {
@@ -89,34 +83,32 @@ func preprocessXML(xmlData string) (string, error) {
 }
 
 func parseAndSubstitutePom(url string) (PomProject, error) {
-	// url := "https://repo1.maven.org/maven2/ae/teletronics/solr/solr-plugins/0.3/solr-plugins-0.3.pom"
 	var project PomProject
 
 	resp, err := http.Get(url)
+	if resp.StatusCode == http.StatusNotFound {
+		return project, nil
+	}
 	if err != nil {
-		fmt.Println("Error fetching POM file:", err)
-		return project, err
+		return project, xerrors.Errorf("can't get pom xml from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return project, err
+		return project, xerrors.Errorf("error reading response body from %s: %w", url, err)
 	}
 
 	xmlData, err := preprocessXML(string(body))
 	if err != nil {
-		fmt.Println("Error preprocessing XML:", err)
-		return project, err
+		return project, xerrors.Errorf("error preprocessing xml from %s: %w", url, err)
 	}
 
 	decoder := xml.NewDecoder(strings.NewReader(xmlData))
 	decoder.CharsetReader = charset.NewReaderLabel
 	err = decoder.Decode(&project)
 	if err != nil {
-		fmt.Println("Error decoding POM file:", err)
-		return project, err
+		return project, xerrors.Errorf("error decoding pom.xml from %s: %w", url, err)
 	}
 
 	substitutePlaceholders(&project)
