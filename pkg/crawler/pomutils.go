@@ -24,40 +24,34 @@ type PomProject struct {
 	URL          string       `xml:"url"`
 	Licenses     []License    `xml:"licenses>license"`
 	Dependencies []Dependency `xml:"dependencies>dependency"`
-	Properties   Properties   `xml:"properties"`
+	Properties   properties   `xml:"properties"`
 }
 
-type Properties struct {
-	Variables map[string]string `xml:",any"`
+type property struct {
+	XMLName xml.Name
+	Value   string `xml:",any"`
 }
 
-func (p *Properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.Variables = make(map[string]string)
+type properties map[string]string
+
+func (props *properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	*props = properties{}
 	for {
-		var e xml.Token
-		e, err := d.Token()
-		if err != nil {
+		var p property
+		err := d.Decode(&p)
+		if err == io.EOF {
+			break
+		} else if err != nil {
 			return err
 		}
 
-		switch elem := e.(type) {
-		case xml.StartElement:
-			key := strings.TrimPrefix(elem.Name.Local, "property.")
-			var value string
-			if err := d.DecodeElement(&value, &elem); err != nil {
-				return err
-			}
-			p.Variables[key] = value
-		case xml.EndElement:
-			if elem == start.End() {
-				return nil
-			}
-		}
+		(*props)[p.XMLName.Local] = p.Value
 	}
+	return nil
 }
 
 func substitutePlaceholders(project *PomProject) {
-	for key, value := range project.Properties.Variables {
+	for key, value := range project.Properties {
 		placeholder := "${" + key + "}"
 		// Substitute placeholders in dependencies
 		for i := range project.Dependencies {
