@@ -76,7 +76,7 @@ type Dependency struct {
 }
 
 func preprocessXML(xmlData string) (string, error) {
-	// Add closing tags to unclosed <hr> tags
+	// Remove all hr tags
 	xmlData = strings.ReplaceAll(xmlData, "<hr>", "")
 	xmlData = strings.ReplaceAll(xmlData, "</hr>", "")
 	return xmlData, nil
