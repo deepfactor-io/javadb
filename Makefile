@@ -23,6 +23,14 @@ db-build: trivy-java-db
 db-compress: cache/*
 	tar cvzf cache/db/javadb.tar.gz -C cache/db/ trivy-java.db metadata.json
 
+.PHONY: dep-db-build
+dep-db-build: trivy-java-db
+	./trivy-java-db --cache-dir ./cache dependency-build
+
+.PHONY: dep-db-compress
+dep-db-compress: cache/*
+	tar cvzf cache/dep-db/javadependencydb.tar.gz -C cache/dep-db/ df-java-dependency.db metadata.json
+
 .PHONY: clean
 clean:
 	rm -rf cache/

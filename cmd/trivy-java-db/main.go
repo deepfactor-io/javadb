@@ -45,6 +45,13 @@ var (
 			return build()
 		},
 	}
+	dependencyBuildCmd = &cobra.Command{
+		Use:   "dependency-build",
+		Short: "Build Java DB with dependencies",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return buildWithDependency()
+		},
+	}
 )
 
 func init() {
@@ -59,6 +66,7 @@ func init() {
 
 	rootCmd.AddCommand(crawlCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(dependencyBuildCmd)
 }
 
 func crawl(ctx context.Context) error {
@@ -88,6 +96,27 @@ func build() error {
 	meta := db.NewMetadata(dbDir)
 	b := builder.NewBuilder(dbc, meta)
 	if err = b.Build(cacheDir); err != nil {
+		return xerrors.Errorf("db build error: %w", err)
+	}
+	return nil
+}
+
+func buildWithDependency() error {
+	if err := db.Reset(cacheDir); err != nil {
+		return xerrors.Errorf("db reset error: %w", err)
+	}
+	dbDir := filepath.Join(cacheDir, "dep-db")
+	log.Printf("Database path: %s", dbDir)
+	dbc, err := db.NewDbWithDependency(dbDir)
+	if err != nil {
+		return xerrors.Errorf("db create error: %w", err)
+	}
+	if err = dbc.InitDbWithDependency(); err != nil {
+		return xerrors.Errorf("db init error: %w", err)
+	}
+	meta := db.NewMetadata(dbDir)
+	b := builder.NewBuilder(dbc, meta)
+	if err = b.BuildWithDependency(cacheDir); err != nil {
 		return xerrors.Errorf("db build error: %w", err)
 	}
 	return nil

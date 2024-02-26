@@ -1,11 +1,12 @@
 ---
 name: Trivy Java DB
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 0 * * *" # update indexes every day in 00:00
 env:
   GH_USER: aqua-bot
-  DB_VERSION: 2   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
+  DB_VERSION: 3   # update version in case of db schema changes. Make sure you don't override the artifact being used in prod
   packages: write # for GHCR
   contents: read
 jobs:
@@ -50,3 +51,24 @@ jobs:
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
           ghcr.io/${{ github.repository }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
+
+      - name: clean javadb
+        run: |
+          rm -rf cache/db/trivy-java.db cache/db/metadata.json javadb.tar.gz
+
+      - name: Build dependency database
+        run: make dep-db-build
+
+      - name: Compress dependency database
+        run: make dep-db-compress
+
+      - name: Move Dependency DB
+        run: mv cache/dep-db/javadependencydb.tar.gz .
+
+      - name: Upload assets to GHCR
+        run: |
+          oras version
+          oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
+          ghcr.io/deepfactor-io/javadependencydb:${DB_VERSION} \
+          javadependencydb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
+
