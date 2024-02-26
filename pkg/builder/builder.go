@@ -128,12 +128,10 @@ func (b *Builder) BuildWithDependency(cacheDir string) error {
 		}
 		for _, ver := range index.Versions {
 			indexes = append(indexes, types.Index{
-				GroupID:     index.GroupID,
-				ArtifactID:  index.ArtifactID,
-				Version:     ver.Version,
-				SHA1:        ver.SHA1,
-				ArchiveType: index.ArchiveType,
-				Dependency:  ver.Dependency,
+				GroupID:    index.GroupID,
+				ArtifactID: index.ArtifactID,
+				Version:    ver.Version,
+				Dependency: ver.Dependency,
 			})
 		}
 		bar.Increment()
@@ -155,7 +153,7 @@ func (b *Builder) BuildWithDependency(cacheDir string) error {
 	}
 
 	if err := b.db.VacuumDB(); err != nil {
-		return xerrors.Errorf("fauled to vacuum db: %w", err)
+		return xerrors.Errorf("failed to vacuum db: %w", err)
 	}
 
 	// save metadata
