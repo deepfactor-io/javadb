@@ -1,8 +1,9 @@
 ---
-name: Trivy Java DB
+name: Trivy Java DB for 3.5
 on:
   schedule:
     - cron: "0 2 */3 * *" # runs on every 2days at 2am
+  workflow_dispatch:
 env:
   GH_USER: aqua-bot
   packages: write # for GHCR
