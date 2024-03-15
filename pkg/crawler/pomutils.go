@@ -29,7 +29,7 @@ type PomProject struct {
 
 type property struct {
 	XMLName xml.Name
-	Value   string `xml:",any"`
+	Value   string `xml:",chardata"`
 }
 
 type properties map[string]string
