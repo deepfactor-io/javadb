@@ -126,9 +126,6 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 			if count%1000 == 0 {
 				log.Printf("Count: %d", count)
 			}
-			if count == 10000 {
-				crawlDone <- struct{}{}
-			}
 			if err := c.limit.Acquire(ctx, 1); err != nil {
 				errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
 				return
