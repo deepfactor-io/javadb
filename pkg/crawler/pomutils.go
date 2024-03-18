@@ -73,6 +73,9 @@ type Dependency struct {
 	GroupID    string `xml:"groupId"`
 	ArtifactID string `xml:"artifactId"`
 	Version    string `xml:"version"`
+	Text       string `xml:",chardata"`
+	Scope      string `xml:"scope"`
+	Optional   bool   `xml:"optional"`
 }
 
 func preprocessXML(xmlData string) (string, error) {
