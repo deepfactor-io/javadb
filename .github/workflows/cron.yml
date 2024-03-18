@@ -22,7 +22,7 @@ jobs:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
         with: 
-          ref: 3.6
+          ref: 3.6-DEEP-10047-a
 
       - name: Get DB version
         id: get_version
