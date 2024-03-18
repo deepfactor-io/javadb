@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	dbFileName    = "trivy-java.db"
+	dbFileName    = "df-java.db"
 	SchemaVersion = 3
 	// This version is being referred in the workflow file. It will impact the version of db being pushed to GHCR. Make sure you double check before making any changes.
 )
