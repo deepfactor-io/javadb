@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	// "github.com/deepfactor-io/go-dep-parser/pkg/log"
+	"github.com/deepfactor-io/go-dep-parser/pkg/log"
 	"github.com/samber/lo"
 	"golang.org/x/exp/slices"
 )
@@ -152,5 +152,5 @@ func printLoopedPropertiesStack(env string, usedProps []string) {
 	for _, prop := range usedProps {
 		s += fmt.Sprintf("%s -> ", prop)
 	}
-	// log.Logger.Warnf("Lopped properties were detected: %s%s", s, env)
+	log.Logger.Warnf("Lopped properties were detected: %s%s", s, env)
 }

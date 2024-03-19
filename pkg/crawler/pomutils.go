@@ -1,8 +1,6 @@
 package crawler
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 
 	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
@@ -44,13 +42,12 @@ func parseAndSubstitutePom(url string) (PomProject, error) {
 	}
 	defer resp.Body.Close()
 
-	rr, err := NewReadSeekerAt(resp.Body)
+	rr, err := pom.NewReadSeekerAt(resp.Body)
 	if err != nil {
-		// return nil, xerrors.Errorf("reader error: %w", err)
+		return project, xerrors.Errorf("reader error: %w", err)
 	}
 
-	newParser := pom.NewParser("")
-
+	newParser := pom.NewParser()
 	pomXML, deps, err := newParser.Parse(rr)
 	if err != nil {
 		return project, xerrors.Errorf("cant parse pom %s: %w", url, err)
@@ -73,17 +70,4 @@ func parseAndSubstitutePom(url string) (PomProject, error) {
 	}
 
 	return project, nil
-}
-
-func NewReadSeekerAt(r io.Reader) (pom.ReadSeekerAt, error) {
-	if rr, ok := r.(pom.ReadSeekerAt); ok {
-		return rr, nil
-	}
-
-	buff := bytes.NewBuffer([]byte{})
-	if _, err := io.Copy(buff, r); err != nil {
-		return nil, xerrors.Errorf("copy error: %w", err)
-	}
-
-	return bytes.NewReader(buff.Bytes()), nil
 }

@@ -7,60 +7,34 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 
+	// dio "github.com/deepfactor-io/go-dep-parser/pkg/io"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
 	"golang.org/x/net/html/charset"
 	"golang.org/x/xerrors"
+
+	"github.com/deepfactor-io/go-dep-parser/pkg/log"
+	// "github.com/deepfactor-io/go-dep-parser/pkg/utils"
 )
 
 const (
 	centralURL = "https://repo.maven.apache.org/maven2/"
 )
 
-type options struct {
-	offline     bool
-	remoteRepos []string
-}
-
-type option func(*options)
-
-func WithOffline(offline bool) option {
-	return func(opts *options) {
-		opts.offline = offline
-	}
-}
-
-func WithRemoteRepos(repos []string) option {
-	return func(opts *options) {
-		opts.remoteRepos = repos
-	}
-}
-
 type parser struct {
-	rootPath           string
 	cache              pomCache
 	remoteRepositories []string
 }
 
-func NewParser(filePath string, opts ...option) Parser {
-	o := &options{
-		remoteRepos: []string{centralURL},
-	}
-
-	for _, opt := range opts {
-		opt(o)
-	}
-
+func NewParser() *parser {
+	remoteRepos := []string{centralURL}
 	return &parser{
-		rootPath:           filepath.Clean(filePath),
 		cache:              newPOMCache(),
-		remoteRepositories: o.remoteRepos,
+		remoteRepositories: remoteRepos,
 	}
-
 }
 
 func (p *parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
@@ -73,26 +47,21 @@ func (p *parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 		content: content,
 	}
 
-	// Analyze root POM
 	result, err := p.analyze(root, analysisOptions{})
 	if err != nil {
-		return nil, nil, xerrors.Errorf("analyze error (%s): %w", p.rootPath, err)
+		return nil, nil, xerrors.Errorf("analyze error: %w", err)
 	}
 
 	// Cache root POM
 	p.cache.put(result.artifact, result)
 
 	_, deps, _ := p.parseRoot(root.artifact())
-	// if err != nil {
-	// 	// return nil, nil, xerrors.Errorf("analyze error: %w", err)
-	// }
-
 	return content, deps, nil
 
-	// pomXML
 }
 
 func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
+
 	// Prepare a queue for dependencies
 	queue := newArtifactQueue()
 
@@ -156,18 +125,6 @@ func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
 			})
 		}
 
-		// Check this
-		// // Parse, cache, and enqueue modules.
-		// for _, relativePath := range result.modules {
-		// 	moduleArtifact, err := p.parseModule(result.filePath, relativePath)
-		// 	if err != nil {
-		// 		log.Logger.Debugf("Unable to parse %q module: %s", result.filePath, err)
-		// 		continue
-		// 	}
-
-		// 	queue.enqueue(moduleArtifact)
-		// }
-
 		// Resolve transitive dependencies later
 		queue.enqueue(result.dependencies...)
 
@@ -189,7 +146,7 @@ func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
 		}
 	}
 
-	// Convert to []Library and []Dependency
+	// Convert to []types.Library and []types.Dependency
 	for name, art := range uniqArtifacts {
 		lib := Library{
 			ID:       packageID(name, art.Version.String()),
@@ -235,10 +192,10 @@ func (p *parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 		return *result, nil
 	}
 
-	// log.Logger.Debugf("Resolving %s:%s:%s...", art.GroupID, art.ArtifactID, art.Version)
+	log.Logger.Debugf("Resolving %s:%s:%s...", art.GroupID, art.ArtifactID, art.Version)
 	pomContent, err := p.tryRepository(art.GroupID, art.ArtifactID, art.Version.String())
 	if err != nil {
-		// log.Logger.Debug(err)
+		log.Logger.Debug(err)
 	}
 	result, err := p.analyze(pomContent, analysisOptions{
 		exclusions:    art.Exclusions,
@@ -253,6 +210,7 @@ func (p *parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 }
 
 type analysisResult struct {
+	filePath             string
 	artifact             artifact
 	dependencies         []artifact
 	dependencyManagement []pomDependency // Keep the order of dependencies in 'dependencyManagement'
@@ -265,19 +223,6 @@ type analysisOptions struct {
 	depManagement []pomDependency // from the root POM
 }
 
-func UniqueStrings(ss []string) []string {
-	var results []string
-	uniq := map[string]struct{}{}
-	for _, s := range ss {
-		if _, ok := uniq[s]; ok {
-			continue
-		}
-		results = append(results, s)
-		uniq[s] = struct{}{}
-	}
-	return results
-}
-
 func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error) {
 	if pom == nil || pom.content == nil {
 		return analysisResult{}, nil
@@ -285,9 +230,8 @@ func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error)
 
 	// Update remoteRepositories
 	p.remoteRepositories = UniqueStrings(append(p.remoteRepositories, pom.repositories()...))
-
 	// Parent
-	parent, err := p.parseParent(pom.content.Parent)
+	parent, err := p.parseParent(pom.filePath, pom.content.Parent)
 	if err != nil {
 		return analysisResult{}, xerrors.Errorf("parent error: %w", err)
 	}
@@ -301,8 +245,7 @@ func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error)
 	// dependencyManagements have the next priority:
 	// 1. Managed dependencies from this POM
 	// 2. Managed dependencies from parent of this POM
-	depManagement := p.mergeDependencyManagements(pom.content.DependencyManagement.Dependencies.Dependency,
-		parent.dependencyManagement)
+	depManagement := p.mergeDependencyManagements(pom.content.DependencyManagement.Dependencies.Dependency, parent.dependencyManagement)
 
 	// Merge dependencies. Child dependencies must be preferred than parent dependencies.
 	// Parents don't have to resolve dependencies.
@@ -310,7 +253,7 @@ func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error)
 	deps = p.mergeDependencies(parent.dependencies, deps, opts.exclusions)
 
 	return analysisResult{
-
+		filePath:             pom.filePath,
 		artifact:             pom.artifact(),
 		dependencies:         deps,
 		dependencyManagement: depManagement,
@@ -421,27 +364,27 @@ func excludeDep(exclusions map[string]struct{}, art artifact) bool {
 	return false
 }
 
-func (p *parser) parseParent(parent pomParent) (analysisResult, error) {
+func (p *parser) parseParent(currentPath string, parent pomParent) (analysisResult, error) {
 	// Pass nil properties so that variables in <parent> are not evaluated.
 	target := newArtifact(parent.GroupId, parent.ArtifactId, parent.Version, nil, nil)
 	// if version is property (e.g. ${revision}) - we still need to parse this pom
 	if target.IsEmpty() && !isProperty(parent.Version) {
 		return analysisResult{}, nil
 	}
-	// log.Logger.Debugf("Start parent: %s", target.String())
-	// defer func() {
-	// 	log.Logger.Debugf("Exit parent: %s", target.String())
-	// }()
+	log.Logger.Debugf("Start parent: %s", target.String())
+	defer func() {
+		log.Logger.Debugf("Exit parent: %s", target.String())
+	}()
 
 	// If the artifact is found in cache, it is returned.
 	if result := p.cache.get(target); result != nil {
 		return *result, nil
 	}
 
-	parentPOM, err := p.retrieveParent(parent.RelativePath, target)
-	// if err != nil {
-	// 	log.Logger.Debugf("parent POM not found: %s", err)
-	// }
+	parentPOM, err := p.retrieveParent(currentPath, parent.RelativePath, target)
+	if err != nil {
+		log.Logger.Debugf("parent POM not found: %s", err)
+	}
 
 	result, err := p.analyze(parentPOM, analysisOptions{})
 	if err != nil {
@@ -453,7 +396,7 @@ func (p *parser) parseParent(parent pomParent) (analysisResult, error) {
 	return result, nil
 }
 
-func (p *parser) retrieveParent(relativePath string, target artifact) (*pom, error) {
+func (p *parser) retrieveParent(currentPath, relativePath string, target artifact) (*pom, error) {
 	var errs error
 
 	// If not found, search local/remote remoteRepositories
@@ -507,34 +450,17 @@ func (p *parser) fetchPOMFromRemoteRepository(paths []string) (*pom, error) {
 		}
 
 		return &pom{
-			// filePath: "", // from remote repositories
-			content: content,
+			filePath: "", // from remote repositories
+			content:  content,
 		}, nil
 	}
 	return nil, xerrors.Errorf("the POM was not found in remote remoteRepositories")
 }
 
-func preprocessXML(xmlData string) (string, error) {
-	// Remove all hr tags
-	xmlData = strings.ReplaceAll(xmlData, "<hr>", "")
-	xmlData = strings.ReplaceAll(xmlData, "</hr>", "")
-	return xmlData, nil
-}
-
 func parsePom(r io.Reader) (*pomXML, error) {
 	parsed := &pomXML{}
-
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-
-	xmlData, _ := preprocessXML(string(body))
-
-	decoder := xml.NewDecoder(strings.NewReader(xmlData))
-
+	decoder := xml.NewDecoder(r)
 	decoder.CharsetReader = charset.NewReaderLabel
-
 	if err := decoder.Decode(parsed); err != nil {
 		return nil, xerrors.Errorf("xml decode error: %w", err)
 	}

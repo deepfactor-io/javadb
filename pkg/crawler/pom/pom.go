@@ -11,18 +11,8 @@ import (
 )
 
 type pom struct {
-	// filePath string
-	content *pomXML
-}
-
-func MergeMaps(parent, child map[string]string) map[string]string {
-	if parent == nil {
-		return child
-	}
-	for k, v := range child {
-		parent[k] = v
-	}
-	return parent
+	filePath string
+	content  *pomXML
 }
 
 func (p *pom) inherit(result analysisResult) {
