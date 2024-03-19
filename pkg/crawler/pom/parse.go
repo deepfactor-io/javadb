@@ -10,14 +10,12 @@ import (
 	"sort"
 	"strings"
 
-	// dio "github.com/deepfactor-io/go-dep-parser/pkg/io"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
 	"golang.org/x/net/html/charset"
 	"golang.org/x/xerrors"
 
 	"github.com/deepfactor-io/go-dep-parser/pkg/log"
-	// "github.com/deepfactor-io/go-dep-parser/pkg/utils"
 )
 
 const (
@@ -132,9 +130,9 @@ func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
 		if !art.IsEmpty() {
 			// Override the version
 			uniqArtifacts[art.Name()] = artifact{
-				Version:  art.Version,
-				Licenses: result.artifact.Licenses,
-				Direct:   art.Direct,
+				Version: art.Version,
+				// Licenses: result.artifact.Licenses,
+				Direct: art.Direct,
 			}
 
 			// save only dependency names
@@ -149,10 +147,10 @@ func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
 	// Convert to []types.Library and []types.Dependency
 	for name, art := range uniqArtifacts {
 		lib := Library{
-			ID:       packageID(name, art.Version.String()),
-			Name:     name,
-			Version:  art.Version.String(),
-			License:  art.JoinLicenses(),
+			ID:      packageID(name, art.Version.String()),
+			Name:    name,
+			Version: art.Version.String(),
+			// License:  art.JoinLicenses(),
 			Indirect: !art.Direct,
 		}
 		libs = append(libs, lib)
