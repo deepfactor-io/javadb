@@ -59,10 +59,10 @@ func (deps Dependencies) Less(i, j int) bool {
 }
 func (deps Dependencies) Swap(i, j int) { deps[i], deps[j] = deps[j], deps[i] }
 
-type Parser interface {
-	// Parse parses the dependency file
-	Parse(r ReadSeekerAt) (*pomXML, []Dependency, error)
-}
+// type Parser interface {
+// 	// Parse parses the dependency file
+// 	Parse(r ReadSeekerAt) (*pomXML, []Dependency, error)
+// }
 
 type RefType string
 

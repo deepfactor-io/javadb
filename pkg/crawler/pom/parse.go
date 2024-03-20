@@ -22,20 +22,20 @@ const (
 	centralURL = "https://repo.maven.apache.org/maven2/"
 )
 
-type parser struct {
-	cache              pomCache
+type Parser struct {
+	// cache              pomCache
 	remoteRepositories []string
 }
 
-func NewParser() *parser {
+func NewParser() *Parser {
 	remoteRepos := []string{centralURL}
-	return &parser{
-		cache:              newPOMCache(),
+	return &Parser{
+		// cache:              newPOMCache(),
 		remoteRepositories: remoteRepos,
 	}
 }
 
-func (p *parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
+func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 	content, err := parsePom(r)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to parse POM: %w", err)
@@ -45,20 +45,20 @@ func (p *parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 		content: content,
 	}
 
-	result, err := p.analyze(root, analysisOptions{})
+	_, err = p.analyze(root, analysisOptions{})
 	if err != nil {
 		return nil, nil, xerrors.Errorf("analyze error: %w", err)
 	}
 
 	// Cache root POM
-	p.cache.put(result.artifact, result)
+	// p.cache.put(result.artifact, result)
 
 	_, deps, _ := p.parseRoot(root.artifact())
 	return content, deps, nil
 
 }
 
-func (p *parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
+func (p *Parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
 
 	// Prepare a queue for dependencies
 	queue := newArtifactQueue()
@@ -184,11 +184,11 @@ func depVersion(depName string, uniqArtifacts map[string]artifact) string {
 	return ""
 }
 
-func (p *parser) resolve(art artifact, rootDepManagement []pomDependency) (analysisResult, error) {
-	// If the artifact is found in cache, it is returned.
-	if result := p.cache.get(art); result != nil {
-		return *result, nil
-	}
+func (p *Parser) resolve(art artifact, rootDepManagement []pomDependency) (analysisResult, error) {
+	// // If the artifact is found in cache, it is returned.
+	// if result := p.cache.get(art); result != nil {
+	// 	return *result, nil
+	// }
 
 	log.Logger.Debugf("Resolving %s:%s:%s...", art.GroupID, art.ArtifactID, art.Version)
 	pomContent, err := p.tryRepository(art.GroupID, art.ArtifactID, art.Version.String())
@@ -203,7 +203,7 @@ func (p *parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
 	}
 
-	p.cache.put(art, result)
+	// p.cache.put(art, result)
 	return result, nil
 }
 
@@ -221,7 +221,7 @@ type analysisOptions struct {
 	depManagement []pomDependency // from the root POM
 }
 
-func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error) {
+func (p *Parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error) {
 	if pom == nil || pom.content == nil {
 		return analysisResult{}, nil
 	}
@@ -256,11 +256,11 @@ func (p *parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error)
 		dependencies:         deps,
 		dependencyManagement: depManagement,
 		properties:           props,
-		modules:              pom.content.Modules.Module,
+		// modules:              pom.content.Modules.Module,
 	}, nil
 }
 
-func (p *parser) mergeDependencyManagements(depManagements ...[]pomDependency) []pomDependency {
+func (p *Parser) mergeDependencyManagements(depManagements ...[]pomDependency) []pomDependency {
 	uniq := map[string]struct{}{}
 	var depManagement []pomDependency
 	// The preceding argument takes precedence.
@@ -276,7 +276,7 @@ func (p *parser) mergeDependencyManagements(depManagements ...[]pomDependency) [
 	return depManagement
 }
 
-func (p *parser) parseDependencies(deps []pomDependency, props map[string]string, depManagement, rootDepManagement []pomDependency,
+func (p *Parser) parseDependencies(deps []pomDependency, props map[string]string, depManagement, rootDepManagement []pomDependency,
 	exclusions map[string]struct{}) []artifact {
 	// Imported POMs often have no dependencies, so dependencyManagement resolution can be skipped.
 	if len(deps) == 0 {
@@ -299,7 +299,7 @@ func (p *parser) parseDependencies(deps []pomDependency, props map[string]string
 	return dependencies
 }
 
-func (p *parser) resolveDepManagement(props map[string]string, depManagement []pomDependency) []pomDependency {
+func (p *Parser) resolveDepManagement(props map[string]string, depManagement []pomDependency) []pomDependency {
 	var newDepManagement, imports []pomDependency
 	for _, dep := range depManagement {
 		// cf. https://howtodoinjava.com/maven/maven-dependency-scopes/#import
@@ -328,7 +328,7 @@ func (p *parser) resolveDepManagement(props map[string]string, depManagement []p
 	return newDepManagement
 }
 
-func (p *parser) mergeDependencies(parent, child []artifact, exclusions map[string]struct{}) []artifact {
+func (p *Parser) mergeDependencies(parent, child []artifact, exclusions map[string]struct{}) []artifact {
 	var deps []artifact
 	unique := map[string]struct{}{}
 
@@ -362,7 +362,7 @@ func excludeDep(exclusions map[string]struct{}, art artifact) bool {
 	return false
 }
 
-func (p *parser) parseParent(currentPath string, parent pomParent) (analysisResult, error) {
+func (p *Parser) parseParent(currentPath string, parent pomParent) (analysisResult, error) {
 	// Pass nil properties so that variables in <parent> are not evaluated.
 	target := newArtifact(parent.GroupId, parent.ArtifactId, parent.Version, nil, nil)
 	// if version is property (e.g. ${revision}) - we still need to parse this pom
@@ -374,10 +374,10 @@ func (p *parser) parseParent(currentPath string, parent pomParent) (analysisResu
 		log.Logger.Debugf("Exit parent: %s", target.String())
 	}()
 
-	// If the artifact is found in cache, it is returned.
-	if result := p.cache.get(target); result != nil {
-		return *result, nil
-	}
+	// // If the artifact is found in cache, it is returned.
+	// if result := p.cache.get(target); result != nil {
+	// 	return *result, nil
+	// }
 
 	parentPOM, err := p.retrieveParent(currentPath, parent.RelativePath, target)
 	if err != nil {
@@ -389,12 +389,12 @@ func (p *parser) parseParent(currentPath string, parent pomParent) (analysisResu
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
 	}
 
-	p.cache.put(target, result)
+	// p.cache.put(target, result)
 
 	return result, nil
 }
 
-func (p *parser) retrieveParent(currentPath, relativePath string, target artifact) (*pom, error) {
+func (p *Parser) retrieveParent(currentPath, relativePath string, target artifact) (*pom, error) {
 	var errs error
 
 	// If not found, search local/remote remoteRepositories
@@ -409,7 +409,7 @@ func (p *parser) retrieveParent(currentPath, relativePath string, target artifac
 	return nil, errs
 }
 
-func (p *parser) tryRepository(groupID, artifactID, version string) (*pom, error) {
+func (p *Parser) tryRepository(groupID, artifactID, version string) (*pom, error) {
 	// Generate a proper path to the pom.xml
 	// e.g. com.fasterxml.jackson.core, jackson-annotations, 2.10.0
 	//      => com/fasterxml/jackson/core/jackson-annotations/2.10.0/jackson-annotations-2.10.0.pom
@@ -426,7 +426,7 @@ func (p *parser) tryRepository(groupID, artifactID, version string) (*pom, error
 	return nil, xerrors.Errorf("%s:%s:%s was not found in local/remote repositories", groupID, artifactID, version)
 }
 
-func (p *parser) fetchPOMFromRemoteRepository(paths []string) (*pom, error) {
+func (p *Parser) fetchPOMFromRemoteRepository(paths []string) (*pom, error) {
 	// try all remoteRepositories
 	for _, repo := range p.remoteRepositories {
 		repoURL, err := url.Parse(repo)

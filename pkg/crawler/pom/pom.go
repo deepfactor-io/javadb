@@ -124,10 +124,10 @@ type pomXML struct {
 	ArtifactId string      `xml:"artifactId"`
 	Version    string      `xml:"version"`
 	Licenses   pomLicenses `xml:"licenses"`
-	Modules    struct {
-		Text   string   `xml:",chardata"`
-		Module []string `xml:"module"`
-	} `xml:"modules"`
+	// Modules    struct {
+	// 	Text   string   `xml:",chardata"`
+	// 	Module []string `xml:"module"`
+	// } `xml:"modules"`
 	Properties           properties `xml:"properties"`
 	DependencyManagement struct {
 		Text         string          `xml:",chardata"`

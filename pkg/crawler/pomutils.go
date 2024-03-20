@@ -30,7 +30,7 @@ type License struct {
 	ClassificationConfidence float64
 }
 
-func parseAndSubstitutePom(url string) (PomProject, error) {
+func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
 	resp, err := http.Get(url)
@@ -47,8 +47,8 @@ func parseAndSubstitutePom(url string) (PomProject, error) {
 		return project, xerrors.Errorf("reader error: %w", err)
 	}
 
-	newParser := pom.NewParser()
-	pomXML, deps, err := newParser.Parse(rr)
+	// newParser := pom.NewParser()
+	pomXML, deps, err := c.parser.Parse(rr)
 	if err != nil {
 		return project, xerrors.Errorf("cant parse pom %s: %w", url, err)
 	}
