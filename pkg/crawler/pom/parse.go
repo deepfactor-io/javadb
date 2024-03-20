@@ -23,14 +23,14 @@ const (
 )
 
 type Parser struct {
-	// cache              pomCache
+	cache              *pomCache
 	remoteRepositories []string
 }
 
 func NewParser() *Parser {
 	remoteRepos := []string{centralURL}
 	return &Parser{
-		// cache:              newPOMCache(),
+		cache:              newPOMCache(),
 		remoteRepositories: remoteRepos,
 	}
 }
@@ -45,13 +45,13 @@ func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 		content: content,
 	}
 
-	_, err = p.analyze(root, analysisOptions{})
+	result, err := p.analyze(root, analysisOptions{})
 	if err != nil {
 		return nil, nil, xerrors.Errorf("analyze error: %w", err)
 	}
 
 	// Cache root POM
-	// p.cache.put(result.artifact, result)
+	p.cache.put(result.artifact, result)
 
 	_, deps, _ := p.parseRoot(root.artifact())
 	return content, deps, nil
@@ -185,10 +185,10 @@ func depVersion(depName string, uniqArtifacts map[string]artifact) string {
 }
 
 func (p *Parser) resolve(art artifact, rootDepManagement []pomDependency) (analysisResult, error) {
-	// // If the artifact is found in cache, it is returned.
-	// if result := p.cache.get(art); result != nil {
-	// 	return *result, nil
-	// }
+	// If the artifact is found in cache, it is returned.
+	if result := p.cache.get(art); result != nil {
+		return *result, nil
+	}
 
 	log.Logger.Debugf("Resolving %s:%s:%s...", art.GroupID, art.ArtifactID, art.Version)
 	pomContent, err := p.tryRepository(art.GroupID, art.ArtifactID, art.Version.String())
@@ -203,7 +203,7 @@ func (p *Parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
 	}
 
-	// p.cache.put(art, result)
+	p.cache.put(art, result)
 	return result, nil
 }
 
@@ -374,10 +374,10 @@ func (p *Parser) parseParent(currentPath string, parent pomParent) (analysisResu
 		log.Logger.Debugf("Exit parent: %s", target.String())
 	}()
 
-	// // If the artifact is found in cache, it is returned.
-	// if result := p.cache.get(target); result != nil {
-	// 	return *result, nil
-	// }
+	// If the artifact is found in cache, it is returned.
+	if result := p.cache.get(target); result != nil {
+		return *result, nil
+	}
 
 	parentPOM, err := p.retrieveParent(currentPath, parent.RelativePath, target)
 	if err != nil {

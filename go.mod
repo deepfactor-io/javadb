@@ -9,6 +9,7 @@ require (
 	github.com/google/licenseclassifier/v2 v2.0.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.4
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/samber/lo v1.38.1
 	github.com/spf13/cobra v1.7.0
