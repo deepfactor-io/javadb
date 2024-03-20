@@ -22,14 +22,14 @@ func newPOMCache() *pomCache {
 }
 
 func (c *pomCache) put(art artifact, result analysisResult) {
-	// c.mu.Lock()
-	// defer c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.cache.Add(c.key(art), &result)
 }
 
 func (c *pomCache) get(art artifact) *analysisResult {
-	// c.mu.Lock()
-	// defer c.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	result, ok := c.cache.Get(c.key(art))
 	if !ok {
 		return nil
@@ -38,5 +38,5 @@ func (c *pomCache) get(art artifact) *analysisResult {
 }
 
 func (c *pomCache) key(art artifact) string {
-	return fmt.Sprintf("%s:%s", art.Name, art.Version)
+	return fmt.Sprintf("%s:%s", art.Name(), art.Version.String())
 }

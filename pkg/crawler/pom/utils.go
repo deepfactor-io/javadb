@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	dio "github.com/deepfactor-io/go-dep-parser/pkg/io"
 	"golang.org/x/xerrors"
@@ -47,12 +48,29 @@ func UniqueStrings(ss []string) []string {
 	return results
 }
 
+// func MergeMaps(parent, child map[string]string) map[string]string {
+// 	mapMutex.Lock()
+// 	defer mapMutex.Unlock()
+// 	if parent == nil {
+// 		return child
+// 	}
+// 	for k, v := range child {
+// 		parent[k] = v
+// 	}
+// 	return parent
+// }
+
+var mapMutex sync.Mutex
+
 func MergeMaps(parent, child map[string]string) map[string]string {
-	if parent == nil {
-		return child
+	mapMutex.Lock()
+	defer mapMutex.Unlock()
+	merged := make(map[string]string)
+	for k, v := range parent {
+		merged[k] = v
 	}
 	for k, v := range child {
-		parent[k] = v
+		merged[k] = v
 	}
-	return parent
+	return merged
 }

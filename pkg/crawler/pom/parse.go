@@ -25,6 +25,7 @@ const (
 type Parser struct {
 	cache              *pomCache
 	remoteRepositories []string
+	httpClient         http.Client
 }
 
 func NewParser() *Parser {
@@ -32,6 +33,7 @@ func NewParser() *Parser {
 	return &Parser{
 		cache:              newPOMCache(),
 		remoteRepositories: remoteRepos,
+		httpClient:         http.Client{},
 	}
 }
 
@@ -213,7 +215,7 @@ type analysisResult struct {
 	dependencies         []artifact
 	dependencyManagement []pomDependency // Keep the order of dependencies in 'dependencyManagement'
 	properties           map[string]string
-	modules              []string
+	// modules              []string
 }
 
 type analysisOptions struct {
@@ -389,7 +391,7 @@ func (p *Parser) parseParent(currentPath string, parent pomParent) (analysisResu
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
 	}
 
-	// p.cache.put(target, result)
+	p.cache.put(target, result)
 
 	return result, nil
 }
@@ -437,10 +439,11 @@ func (p *Parser) fetchPOMFromRemoteRepository(paths []string) (*pom, error) {
 		paths = append([]string{repoURL.Path}, paths...)
 		repoURL.Path = path.Join(paths...)
 
-		resp, err := http.Get(repoURL.String())
+		resp, err := p.httpClient.Get(repoURL.String())
 		if err != nil || resp.StatusCode != http.StatusOK {
 			continue
 		}
+		defer resp.Body.Close()
 
 		content, err := parsePom(resp.Body)
 		if err != nil {
