@@ -132,6 +132,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				log.Printf("Count: %d", count)
 			}
 			if err := c.limit.Acquire(ctx, 1); err != nil {
+				fmt.Println("error in c.limit.Acquire ------------------")
+				fmt.Println(err)
+				fmt.Println("--------------------------------------")
 				errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
 				return
 			}
@@ -139,6 +142,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				defer c.limit.Release(1)
 				defer c.wg.Done()
 				if err := c.Visit(url); err != nil {
+					fmt.Println("error in visit ------------------")
+					fmt.Println(err)
+					fmt.Println("--------------------------------------")
 					errCh <- xerrors.Errorf("visit error: %w", err)
 				}
 			}(url)
