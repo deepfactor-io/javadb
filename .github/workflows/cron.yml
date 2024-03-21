@@ -27,6 +27,9 @@ jobs:
       - name: Get DB version
         id: get_version
         run: echo "DB_VERSION=$(grep -oP 'SchemaVersion = \K\d+(\.\d+)?' pkg/db/db.go)" >> $GITHUB_OUTPUT
+      
+      - name: Debug
+        run: ulimit -a
 
       - name: Build the binary
         run: make build
