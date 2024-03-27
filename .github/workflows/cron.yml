@@ -61,7 +61,7 @@ jobs:
 
       - name: clean javadb
         run: |
-          rm -rf cache/db/trivy-java.db cache/db/metadata.json javadb.tar.gz
+          rm -rf cache/db/df-java.db cache/db/metadata.json javadb.tar.gz
 
       - name: Build dependency database
         run: make dep-db-build
