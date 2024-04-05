@@ -19,7 +19,9 @@ import (
 	"github.com/deepfactor-io/javadb/pkg/types"
 )
 
-const updateInterval = time.Hour * 72 // 3 days
+// const updateInterval = time.Hour * 72 // 3 days
+const updateInterval = 10 * time.Minute // 3 days
+
 const licenseStringLimit = 150
 
 type Builder struct {
