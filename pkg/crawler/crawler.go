@@ -239,19 +239,11 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			licenseKeys := lo.Uniq(pomValues.Licenses)
 			sort.Strings(licenseKeys)
 
-			dependencyList := make([]string, 0)
-			for _, d := range pomValues.Dependencies {
-				if (d.Scope != "" && d.Scope != "compile") || d.Optional {
-					continue
-				}
-				dependencyList = append(dependencyList, fmt.Sprintf("%s:%s:%s", d.GroupID, d.ArtifactID, d.Version))
-			}
-
 			v := Version{
 				Version:    version,
 				SHA1:       sha1,
 				License:    strings.Join(licenseKeys, "|"),
-				Dependency: strings.Join(dependencyList, ","),
+				Dependency: strings.Join(pomValues.Dependencies, ","),
 			}
 
 			versions = append(versions, v)
