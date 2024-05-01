@@ -6,26 +6,26 @@ test:
 	go test -v -short -race -timeout 30s -coverprofile=coverage.txt -covermode=atomic ./...
 
 .PHONY: build
-build: trivy-java-db
+build: df-java-db
 
-trivy-java-db: $(GO_SRCS)
-	go build $(LDFLAGS) ./cmd/trivy-java-db
+df-java-db: $(GO_SRCS)
+	go build $(LDFLAGS) ./cmd/df-java-db
 
 .PHONY: db-crawl
-db-crawl: trivy-java-db
-	./trivy-java-db --cache-dir ./cache crawl
+db-crawl: df-java-db
+	./df-java-db --cache-dir ./cache crawl
 
 .PHONY: db-build
-db-build: trivy-java-db
-	./trivy-java-db --cache-dir ./cache build
+db-build: df-java-db
+	./df-java-db --cache-dir ./cache build
 
 .PHONY: db-compress
 db-compress: cache/*
-	tar cvzf cache/db/javadb.tar.gz -C cache/db/ trivy-java.db metadata.json
+	tar cvzf cache/db/javadb.tar.gz -C cache/db/ df-java.db metadata.json
 
 .PHONY: dep-db-build
-dep-db-build: trivy-java-db
-	./trivy-java-db --cache-dir ./cache dependency-build
+dep-db-build: df-java-db
+	./df-java-db --cache-dir ./cache dependency-build
 
 .PHONY: dep-db-compress
 dep-db-compress: cache/*

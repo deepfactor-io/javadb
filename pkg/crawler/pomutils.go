@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"net/http"
+	"strings"
 
 	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"golang.org/x/xerrors"
@@ -9,7 +10,7 @@ import (
 
 type PomParsedValues struct {
 	Licenses     []string
-	Dependencies []string
+	Dependencies []Dependency
 }
 
 type PomProject struct {
@@ -20,7 +21,7 @@ type PomProject struct {
 	Description  string `xml:"description"`
 	URL          string `xml:"url"`
 	Licenses     []License
-	Dependencies []string
+	Dependencies []Dependency
 }
 
 type License struct {
@@ -30,7 +31,23 @@ type License struct {
 	ClassificationConfidence float64
 }
 
-func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
+type Dependency struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Version    string `xml:"version"`
+	Text       string `xml:",chardata"`
+	Scope      string `xml:"scope"`
+	Optional   bool   `xml:"optional"`
+}
+
+func preprocessXML(xmlData string) (string, error) {
+	// Remove all hr tags
+	xmlData = strings.ReplaceAll(xmlData, "<hr>", "")
+	xmlData = strings.ReplaceAll(xmlData, "</hr>", "")
+	return xmlData, nil
+}
+
+func parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
 	resp, err := http.Get(url)

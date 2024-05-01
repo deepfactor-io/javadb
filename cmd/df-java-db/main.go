@@ -28,7 +28,7 @@ var (
 	limit    int
 
 	rootCmd = &cobra.Command{
-		Use:   "trivy-java-db",
+		Use:   "df-java-db",
 		Short: "Build Java DB to store maven indexes",
 	}
 	crawlCmd = &cobra.Command{
@@ -60,7 +60,7 @@ func init() {
 		log.Fatal(err)
 	}
 
-	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", filepath.Join(userCacheDir, "trivy-java-db"),
+	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", filepath.Join(userCacheDir, "df-java-db"),
 		"cache dir")
 	rootCmd.PersistentFlags().IntVar(&limit, "limit", 500, "max parallelism")
 
