@@ -36,7 +36,7 @@ const githubBlob = "/blob/"
 type Crawler struct {
 	dir        string
 	licensedir string
-	http       *retryablehttp.Client
+	// http       *retryablehttp.Client
 
 	rootUrl string
 	wg      sync.WaitGroup
@@ -92,7 +92,7 @@ func NewCrawler(opt Option) Crawler {
 	return Crawler{
 		dir:        indexDir,
 		licensedir: licensedir,
-		http:       client,
+		// http:       client,
 
 		rootUrl:           opt.RootUrl,
 		urlCh:             make(chan string, opt.Limit*10),
@@ -171,7 +171,7 @@ loop:
 
 // Visit : visits the maven urls.
 func (c *Crawler) Visit(url string) error {
-	resp, err := c.http.Get(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return xerrors.Errorf("http get error (%s): %w", url, err)
 	}
@@ -268,7 +268,7 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 }
 
 func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
-	resp, err := c.http.Get(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, xerrors.Errorf("can't get url: %w", err)
 	}
@@ -292,7 +292,7 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 }
 
 func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
-	resp, err := c.http.Get(url)
+	resp, err := http.Get(url)
 	// some projects don't have xxx.jar and xxx.jar.sha1 files
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
