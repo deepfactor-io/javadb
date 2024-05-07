@@ -8,7 +8,7 @@ on:
       buildBranch:
         description: "Build Branch: full/patch build branch name, the branch must exist for this repo"
         required: false
-        default: ""
+        default: "3.6"
 env:
   GH_USER: aqua-bot
   packages: write # for GHCR
@@ -26,8 +26,8 @@ jobs:
 
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
-        with: 
-          ref: ${{ github.event.inputs.buildBranch || '3.6' }}
+        with:
+          ref: ${{ github.event.inputs.buildBranch}}
 
       - name: Get DB version
         id: get_version
