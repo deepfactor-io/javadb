@@ -62,7 +62,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", filepath.Join(userCacheDir, "df-java-db"),
 		"cache dir")
-	rootCmd.PersistentFlags().IntVar(&limit, "limit", 500, "max parallelism")
+	rootCmd.PersistentFlags().IntVar(&limit, "limit", 300, "max parallelism")
 
 	rootCmd.AddCommand(crawlCmd)
 	rootCmd.AddCommand(buildCmd)
