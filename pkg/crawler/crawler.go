@@ -52,6 +52,8 @@ type Crawler struct {
 
 	// pomParser
 	parser *pom.Parser
+
+	jsonCh chan PrintJson
 }
 
 type Option struct {
@@ -101,7 +103,14 @@ func NewCrawler(opt Option) Crawler {
 		opt:               opt,
 		uniqueLicenseKeys: cmap.New[License](),
 		parser:            pom.NewParser(),
+
+		jsonCh: make(chan PrintJson),
 	}
+}
+
+type PrintJson struct {
+	Filepath string
+	Data     interface{}
 }
 
 func (c *Crawler) Crawl(ctx context.Context) error {
@@ -109,6 +118,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	errCh := make(chan error)
 	defer close(errCh)
+
+	// jsonCh := make(chan PrintJson)
+	// defer close(jsonCh)
 
 	// Add a root url
 	c.urlCh <- c.rootUrl
@@ -123,7 +135,10 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	// For the HTTP loop
 	go func() {
-		defer func() { crawlDone <- struct{}{} }()
+		defer func() {
+			close(c.jsonCh)
+			// crawlDone <- struct{}{}
+		}()
 
 		var count int
 		for url := range c.urlCh {
@@ -149,6 +164,15 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				}
 			}(url)
 		}
+	}()
+
+	go func() {
+		for x := range c.jsonCh {
+			if err := fileutil.WriteJSON(x.Filepath, x.Data); err != nil {
+				xerrors.Errorf("json write error: %w", err)
+			}
+		}
+		crawlDone <- struct{}{}
 	}()
 
 loop:
@@ -261,9 +285,14 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 	}
 	fileName := fmt.Sprintf("%s.json", index.ArtifactID)
 	filePath := filepath.Join(c.dir, index.GroupID, fileName)
-	if err := fileutil.WriteJSON(filePath, index); err != nil {
-		return xerrors.Errorf("json write error: %w", err)
+	// if err := fileutil.WriteJSON(filePath, index); err != nil {
+	// 	return xerrors.Errorf("json write error: %w", err)
+	// }
+	printJson := PrintJson{
+		Filepath: filePath,
+		Data:     index,
 	}
+	c.jsonCh <- printJson
 	return nil
 }
 
@@ -440,10 +469,15 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 			}
 		}
 
-		err := fileutil.WriteJSON(c.licensedir+types.NormalizedlicenseFileName, normalizedLicenseMap)
-		if err != nil {
-			log.Println(err)
+		// err := fileutil.WriteJSON(c.licensedir+types.NormalizedlicenseFileName, normalizedLicenseMap)
+		// if err != nil {
+		// 	log.Println(err)
+		// }
+		printJson := PrintJson{
+			Filepath: c.licensedir + types.NormalizedlicenseFileName,
+			Data:     normalizedLicenseMap,
 		}
+		c.jsonCh <- printJson
 	}()
 
 	return nil
