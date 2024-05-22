@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/deepfactor-io/javadb/pkg/crawler"
 	"github.com/deepfactor-io/javadb/pkg/db"
 
-	_ "net/http/pprof"
+	// _ "net/http/pprof"
 
 	_ "modernc.org/sqlite"
 )
@@ -23,21 +22,21 @@ func main() {
 	// go func() {
 	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
 	// }()
-	mux := http.NewServeMux()
-	// Register pprof handlers
-	mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
+	// mux := http.NewServeMux()
+	// // Register pprof handlers
+	// mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
 
-	// Register your application's handlers
-	// mux.HandleFunc("/yourapp", yourAppHandler)
+	// // Register your application's handlers
+	// // mux.HandleFunc("/yourapp", yourAppHandler)
 
-	server := &http.Server{
-		Addr:    "localhost:6060",
-		Handler: mux,
-	}
+	// server := &http.Server{
+	// 	Addr:    "localhost:6060",
+	// 	Handler: mux,
+	// }
 
-	go func() {
-		log.Println(server.ListenAndServe())
-	}()
+	// go func() {
+	// 	log.Println(server.ListenAndServe())
+	// }()
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("%+v", err)
@@ -84,7 +83,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", filepath.Join(userCacheDir, "df-java-db"),
 		"cache dir")
-	rootCmd.PersistentFlags().IntVar(&limit, "limit", 300, "max parallelism")
+	rootCmd.PersistentFlags().IntVar(&limit, "limit", 1000, "max parallelism")
 
 	rootCmd.AddCommand(crawlCmd)
 	rootCmd.AddCommand(buildCmd)
