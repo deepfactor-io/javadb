@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -50,8 +51,12 @@ func preprocessXML(xmlData string) (string, error) {
 func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
-	resp, err := http.Get(url)
-	if resp.StatusCode == http.StatusNotFound {
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		fmt.Println("check this error -----")
+		fmt.Println(err)
+	}
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return project, nil
 	}
 	if err != nil {
