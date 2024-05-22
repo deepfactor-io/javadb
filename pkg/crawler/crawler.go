@@ -322,8 +322,12 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 
 func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("check this error -----")
+		fmt.Println(err)
+	}
 	// some projects don't have xxx.jar and xxx.jar.sha1 files
-	if resp.StatusCode == http.StatusNotFound {
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
 	}
 	if err != nil {
