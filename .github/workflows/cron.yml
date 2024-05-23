@@ -31,12 +31,6 @@ jobs:
       - name: Check ulimit
         run: ulimit -a
 
-      - name: Increase file limit
-        run: sudo sysctl -w fs.file-max=unlimited
-
-      - name: Check ulimit
-        run: ulimit -a
-
       - name: Build the binary
         run: make build
 
