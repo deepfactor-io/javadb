@@ -7,7 +7,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-const cacheSize = 100000
+const cacheSize = 100
 
 type pomCache struct {
 	mu    sync.Mutex
