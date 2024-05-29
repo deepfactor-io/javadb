@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"golang.org/x/xerrors"
@@ -51,11 +52,14 @@ func preprocessXML(xmlData string) (string, error) {
 func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
+	x := time.Now()
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		fmt.Println("check this error -----")
 		fmt.Println(err)
 	}
+	fmt.Println("completed in = ", time.Since(x).Minutes())
+
 	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return project, nil
 	}
