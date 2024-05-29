@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -13,30 +14,26 @@ import (
 	"github.com/deepfactor-io/javadb/pkg/crawler"
 	"github.com/deepfactor-io/javadb/pkg/db"
 
-	// _ "net/http/pprof"
+	_ "net/http/pprof"
 
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-	// mux := http.NewServeMux()
-	// // Register pprof handlers
-	// mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
 
-	// // Register your application's handlers
-	// // mux.HandleFunc("/yourapp", yourAppHandler)
+	mux := http.NewServeMux()
 
-	// server := &http.Server{
-	// 	Addr:    "localhost:6060",
-	// 	Handler: mux,
-	// }
+	// Register pprof handlers
+	mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
 
-	// go func() {
-	// 	log.Println(server.ListenAndServe())
-	// }()
+	server := &http.Server{
+		Addr:    "localhost:6060",
+		Handler: mux,
+	}
+
+	go func() {
+		log.Println(server.ListenAndServe())
+	}()
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("%+v", err)
