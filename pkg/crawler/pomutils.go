@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"golang.org/x/xerrors"
@@ -52,13 +51,14 @@ func preprocessXML(xmlData string) (string, error) {
 func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
-	x := time.Now()
+	// define parser here
+	parser := pom.NewParser()
+
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		fmt.Println("check this error -----")
 		fmt.Println(err)
 	}
-	fmt.Println("completed in = ", time.Since(x).Minutes())
 
 	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return project, nil
@@ -73,7 +73,7 @@ func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 		return project, xerrors.Errorf("reader error: %w", err)
 	}
 
-	pomXML, deps, err := c.parser.Parse(rr)
+	pomXML, deps, err := parser.Parse(rr)
 	if err != nil {
 		return project, xerrors.Errorf("cant parse pom %s: %w", url, err)
 	}

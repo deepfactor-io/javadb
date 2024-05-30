@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
 	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
@@ -49,9 +48,6 @@ type Crawler struct {
 
 	// uniqueLicenseKeys : key is hash of license url or name in POM, whichever available
 	uniqueLicenseKeys cmap.ConcurrentMap[string, License]
-
-	// pomParser
-	parser *pom.Parser
 
 	jsonCh chan PrintJson
 }
@@ -102,7 +98,6 @@ func NewCrawler(opt Option) Crawler {
 		classifier:        classifier,
 		opt:               opt,
 		uniqueLicenseKeys: cmap.New[License](),
-		parser:            pom.NewParser(),
 
 		jsonCh: make(chan PrintJson),
 	}

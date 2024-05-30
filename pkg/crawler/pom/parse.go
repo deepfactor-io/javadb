@@ -9,7 +9,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
@@ -440,13 +439,11 @@ func (p *Parser) fetchPOMFromRemoteRepository(paths []string) (*pom, error) {
 		paths = append([]string{repoURL.Path}, paths...)
 		repoURL.Path = path.Join(paths...)
 
-		x := time.Now()
 		resp, err := p.httpClient.Get(repoURL.String())
 		if err != nil || resp.StatusCode != http.StatusOK {
 			continue
 		}
 		defer resp.Body.Close()
-		fmt.Println("completed in = ", time.Since(x).Minutes())
 
 		content, err := parsePom(resp.Body)
 		if err != nil {
