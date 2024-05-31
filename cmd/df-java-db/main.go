@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -21,19 +20,19 @@ import (
 
 func main() {
 
-	mux := http.NewServeMux()
+	// mux := http.NewServeMux()
 
-	// Register pprof handlers
-	mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
+	// // Register pprof handlers
+	// mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
 
-	server := &http.Server{
-		Addr:    "localhost:6060",
-		Handler: mux,
-	}
+	// server := &http.Server{
+	// 	Addr:    "localhost:6060",
+	// 	Handler: mux,
+	// }
 
-	go func() {
-		log.Println(server.ListenAndServe())
-	}()
+	// go func() {
+	// 	log.Println(server.ListenAndServe())
+	// }()
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("%+v", err)
@@ -80,7 +79,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", filepath.Join(userCacheDir, "df-java-db"),
 		"cache dir")
-	rootCmd.PersistentFlags().IntVar(&limit, "limit", 1000, "max parallelism")
+	rootCmd.PersistentFlags().IntVar(&limit, "limit", 200, "max parallelism")
 
 	rootCmd.AddCommand(crawlCmd)
 	rootCmd.AddCommand(buildCmd)
