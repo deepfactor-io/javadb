@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/xml"
@@ -15,16 +16,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
 	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
-	"github.com/samber/lo"
-
-	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
-	cmap "github.com/orcaman/concurrent-map/v2"
+	"github.com/samber/lo"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/xerrors"
+
+	cmap "github.com/orcaman/concurrent-map/v2"
 )
 
 const mavenRepoURL = "https://repo.maven.apache.org/maven2/"
@@ -35,13 +36,14 @@ const githubBlob = "/blob/"
 type Crawler struct {
 	dir        string
 	licensedir string
-	httpClient *retryablehttp.Client
+	http       *retryablehttp.Client
 
-	rootUrl string
-	wg      sync.WaitGroup
-	urlCh   chan string
-	limit   *semaphore.Weighted
-	opt     Option
+	rootUrl         string
+	wg              sync.WaitGroup
+	urlCh           chan string
+	limit           *semaphore.Weighted
+	wrongSHA1Values []string
+	opt             Option
 
 	// license classifier
 	classifier *backend.ClassifierBackend
@@ -49,7 +51,12 @@ type Crawler struct {
 	// uniqueLicenseKeys : key is hash of license url or name in POM, whichever available
 	uniqueLicenseKeys cmap.ConcurrentMap[string, License]
 
-	jsonCh chan PrintJson
+	writeToFileChan chan WriteToFile
+}
+
+type WriteToFile struct {
+	Filepath string
+	Data     interface{}
 }
 
 type Option struct {
@@ -65,6 +72,7 @@ type licenseFilesMeta struct {
 
 func NewCrawler(opt Option) Crawler {
 	client := retryablehttp.NewClient()
+	client.RetryMax = 10
 	client.Logger = nil
 
 	if opt.RootUrl == "" {
@@ -90,32 +98,27 @@ func NewCrawler(opt Option) Crawler {
 	return Crawler{
 		dir:        indexDir,
 		licensedir: licensedir,
-		httpClient: client,
+		http:       client,
 
-		rootUrl:           opt.RootUrl,
-		urlCh:             make(chan string, opt.Limit*10),
-		limit:             semaphore.NewWeighted(opt.Limit),
-		classifier:        classifier,
-		opt:               opt,
+		rootUrl:    opt.RootUrl,
+		urlCh:      make(chan string, opt.Limit*10),
+		limit:      semaphore.NewWeighted(opt.Limit),
+		classifier: classifier,
+		opt:        opt,
+
 		uniqueLicenseKeys: cmap.New[License](),
 
-		jsonCh: make(chan PrintJson),
+		writeToFileChan: make(chan WriteToFile),
 	}
-}
-
-type PrintJson struct {
-	Filepath string
-	Data     interface{}
 }
 
 func (c *Crawler) Crawl(ctx context.Context) error {
 	log.Println("Crawl maven repository and save indexes")
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	errCh := make(chan error)
 	defer close(errCh)
-
-	// jsonCh := make(chan PrintJson)
-	// defer close(jsonCh)
 
 	// Add a root url
 	c.urlCh <- c.rootUrl
@@ -130,10 +133,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	// For the HTTP loop
 	go func() {
-		defer func() {
-			close(c.jsonCh)
-			// crawlDone <- struct{}{}
-		}()
+		defer func() { crawlDone <- struct{}{} }()
 
 		var count int
 		for url := range c.urlCh {
@@ -142,19 +142,19 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				log.Printf("Count: %d", count)
 			}
 			if err := c.limit.Acquire(ctx, 1); err != nil {
-				fmt.Println("error in c.limit.Acquire ------------------")
+				fmt.Println("============== c.limit.Acquire ======================")
 				fmt.Println(err)
-				fmt.Println("--------------------------------------")
+				fmt.Println("=====================================================")
 				errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
 				return
 			}
 			go func(url string) {
 				defer c.limit.Release(1)
 				defer c.wg.Done()
-				if err := c.Visit(url); err != nil {
-					fmt.Println("error in visit ------------------")
+				if err := c.Visit(ctx, url); err != nil {
+					fmt.Println("============== Visit ================================")
 					fmt.Println(err)
-					fmt.Println("--------------------------------------")
+					fmt.Println("=====================================================")
 					errCh <- xerrors.Errorf("visit error: %w", err)
 				}
 			}(url)
@@ -162,7 +162,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	}()
 
 	go func() {
-		for x := range c.jsonCh {
+		for x := range c.writeToFileChan {
 			if err := fileutil.WriteJSON(x.Filepath, x.Data); err != nil {
 				xerrors.Errorf("json write error: %w", err)
 			}
@@ -177,20 +177,30 @@ loop:
 		case <-crawlDone:
 			break loop
 		case err := <-errCh:
+			cancel() // Stop all running Visit functions to avoid writing to closed c.urlCh.
 			close(c.urlCh)
 			return err
 
 		}
 	}
 	log.Println("Crawl completed")
+	if len(c.wrongSHA1Values) > 0 {
+		log.Println("Wrong sha1 files:")
+		for _, wrongSHA1 := range c.wrongSHA1Values {
+			log.Println(wrongSHA1)
+		}
+	}
 
 	// fetch license information
 	return c.classifyLicense(ctx)
 }
 
-// Visit : visits the maven urls.
-func (c *Crawler) Visit(url string) error {
-	resp, err := c.httpClient.Get(url)
+func (c *Crawler) Visit(ctx context.Context, url string) error {
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return xerrors.Errorf("unable to new HTTP request: %w", err)
+	}
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return xerrors.Errorf("http get error (%s): %w", url, err)
 	}
@@ -210,7 +220,7 @@ func (c *Crawler) Visit(url string) error {
 	var children []string
 	var foundMetadata bool
 	d.Find("a").Each(func(i int, selection *goquery.Selection) {
-		link := selection.Text()
+		link := linkFromSelection(selection)
 		if link == "maven-metadata.xml" {
 			foundMetadata = true
 			return
@@ -218,18 +228,20 @@ func (c *Crawler) Visit(url string) error {
 			// only `../` and dirs have `/` suffix. We don't need to check other files.
 			return
 		}
-
 		children = append(children, link)
 	})
 
 	if foundMetadata {
-		meta, err := c.parseMetadata(url + "maven-metadata.xml")
+		meta, err := c.parseMetadata(ctx, url+"maven-metadata.xml")
 		if err != nil {
 			return xerrors.Errorf("metadata parse error: %w", err)
 		}
 		if meta != nil {
-			// analyze GAV information
-			return c.crawlSHA1(url, meta)
+			if err = c.crawlSHA1(ctx, url, meta, children); err != nil {
+				return err
+			}
+			// Return here since there is no need to crawl dirs anymore.
+			return nil
 		}
 	}
 
@@ -237,51 +249,108 @@ func (c *Crawler) Visit(url string) error {
 
 	go func() {
 		for _, child := range children {
-			c.urlCh <- url + child
+			select {
+			// Context can be canceled if we receive an error from another Visit function.
+			case <-ctx.Done():
+				return
+			default:
+				c.urlCh <- url + child
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
-	var versions []Version
-	for _, version := range meta.Versioning.Versions {
-		sha1FileName := fmt.Sprintf("/%s-%s.jar.sha1", meta.ArtifactID, version)
-		sha1, err := c.fetchSHA1(baseURL + version + sha1FileName)
+func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata, dirs []string) error {
+	var foundVersions []Version
+	// Check each version dir to find links to `*.jar.sha1` files.
+	for _, dir := range dirs {
+		dirURL := baseURL + dir
+		sha1Urls, err := c.sha1Urls(ctx, dirURL)
 		if err != nil {
-			log.Printf("error in fetchSHA1. Error: %s", err)
-			continue
+			return xerrors.Errorf("unable to get list of sha1 files from %q: %s", dirURL, err)
 		}
-		if len(sha1) != 0 {
 
-			// fetch license information on the basis of pom url
-			pomURL := getPomURL(baseURL, meta.ArtifactID, version)
-			pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
+		// Remove the `/` suffix to correctly compare file versions with version from directory name.
+		dirVersion := strings.TrimSuffix(dir, "/")
+		var dirVersionSha1 []byte
+		var versions []Version
+		var dirVersionPomFetched bool
+		var license, dependency string
+		for _, sha1Url := range sha1Urls {
+			sha1, err := c.fetchSHA1(ctx, sha1Url)
 			if err != nil {
-				log.Println(err)
+				return xerrors.Errorf("unable to fetch sha1: %s", err)
 			}
-			licenseKeys := lo.Uniq(pomValues.Licenses)
-			sort.Strings(licenseKeys)
+			if ver := versionFromSha1URL(meta.ArtifactID, sha1Url); ver != "" && len(sha1) != 0 {
 
-			v := Version{
-				Version:    version,
-				SHA1:       sha1,
-				License:    strings.Join(licenseKeys, "|"),
-				Dependency: strings.Join(pomValues.Dependencies, ","),
+				// Save sha1 for the file where the version is equal to the version from the directory name in order to remove duplicates later
+				// Avoid overwriting dirVersion when inserting versions into the database (sha1 is uniq blob)
+				// e.g. `cudf-0.14-cuda10-1.jar.sha1` should not overwrite `cudf-0.14.jar.sha1`
+				// https://repo.maven.apache.org/maven2/ai/rapids/cudf/0.14/
+				if ver == dirVersion {
+					dirVersionSha1 = sha1
+					if !dirVersionPomFetched {
+						// fetch license information on the basis of pom url
+						pomURL := getPomURL(baseURL, meta.ArtifactID, ver)
+						pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
+						if err != nil {
+							log.Println(err)
+						}
+						licenseKeys := lo.Uniq(pomValues.Licenses)
+						sort.Strings(licenseKeys)
+
+						license = strings.Join(licenseKeys, "|")
+						dependency = strings.Join(pomValues.Dependencies, ",")
+					}
+					dirVersionPomFetched = true
+				} else {
+					// fetch license information on the basis of pom url
+					pomURL := getPomURL(baseURL, meta.ArtifactID, ver)
+					pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
+					if err != nil {
+						log.Println(err)
+					}
+					licenseKeys := lo.Uniq(pomValues.Licenses)
+					sort.Strings(licenseKeys)
+
+					v := Version{
+						Version:    ver,
+						SHA1:       sha1,
+						License:    strings.Join(licenseKeys, "|"),
+						Dependency: strings.Join(pomValues.Dependencies, ","),
+					}
+
+					versions = append(versions, v)
+				}
 			}
-
-			versions = append(versions, v)
 		}
+		// Remove duplicates of dirVersionSha1
+		versions = lo.Filter(versions, func(v Version, _ int) bool {
+			return !bytes.Equal(v.SHA1, dirVersionSha1)
+		})
+
+		if dirVersionSha1 != nil {
+			versions = append(versions, Version{
+				Version:    dirVersion,
+				SHA1:       dirVersionSha1,
+				License:    license,
+				Dependency: dependency,
+			})
+		}
+
+		foundVersions = append(foundVersions, versions...)
 	}
-	if len(versions) == 0 {
+
+	if len(foundVersions) == 0 {
 		return nil
 	}
 
 	index := &Index{
 		GroupID:     meta.GroupID,
 		ArtifactID:  meta.ArtifactID,
-		Versions:    versions,
+		Versions:    foundVersions,
 		ArchiveType: types.JarType,
 	}
 	fileName := fmt.Sprintf("%s.json", index.ArtifactID)
@@ -289,18 +358,61 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 	// if err := fileutil.WriteJSON(filePath, index); err != nil {
 	// 	return xerrors.Errorf("json write error: %w", err)
 	// }
-	printJson := PrintJson{
+	printJson := WriteToFile{
 		Filepath: filePath,
 		Data:     index,
 	}
-	c.jsonCh <- printJson
+	c.writeToFileChan <- printJson
+
 	return nil
 }
 
-func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
-	resp, err := c.httpClient.Get(url)
+func (c *Crawler) sha1Urls(ctx context.Context, url string) ([]string, error) {
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, xerrors.Errorf("can't get url: %w", err)
+		return nil, xerrors.Errorf("unable to new HTTP request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, xerrors.Errorf("http get error (%s): %w", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	d, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, xerrors.Errorf("can't create new goquery doc: %w", err)
+	}
+
+	// Version dir may contain multiple `*jar.sha1` files.
+	// e.g. https://repo1.maven.org/maven2/org/jasypt/jasypt/1.9.3/
+	// We need to take all links.
+	var sha1URLs []string
+	d.Find("a").Each(func(i int, selection *goquery.Selection) {
+		link := linkFromSelection(selection)
+		// Don't include sources, test, javadocs, scaladoc files
+		if strings.HasSuffix(link, ".jar.sha1") && !strings.HasSuffix(link, "sources.jar.sha1") &&
+			!strings.HasSuffix(link, "test.jar.sha1") && !strings.HasSuffix(link, "tests.jar.sha1") &&
+			!strings.HasSuffix(link, "javadoc.jar.sha1") && !strings.HasSuffix(link, "scaladoc.jar.sha1") {
+			sha1URLs = append(sha1URLs, url+link)
+		}
+	})
+	return sha1URLs, nil
+}
+
+func (c *Crawler) parseMetadata(ctx context.Context, url string) (*Metadata, error) {
+	// We need to skip metadata.xml files from groupID folder
+	// e.g. https://repo.maven.apache.org/maven2/args4j/maven-metadata.xml
+	if len(strings.Split(url, "/")) < 7 {
+		return nil, nil
+	}
+
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, xerrors.Errorf("unable to new HTTP request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, xerrors.Errorf("http get error (%s): %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -314,33 +426,37 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 	if err = xml.NewDecoder(resp.Body).Decode(&meta); err != nil {
 		return nil, xerrors.Errorf("%s decode error: %w", url, err)
 	}
+	// Skip metadata without `GroupID` and ArtifactID` fields
+	// e.g. https://repo.maven.apache.org/maven2/at/molindo/maven-metadata.xml
+	if meta.ArtifactID == "" || meta.GroupID == "" {
+		return nil, nil
+	}
+
 	// we don't need metadata.xml files from version folder
 	// e.g. https://repo.maven.apache.org/maven2/HTTPClient/HTTPClient/0.3-3/maven-metadata.xml
 	if len(meta.Versioning.Versions) == 0 {
 		return nil, nil
 	}
-	// also we need to skip metadata.xml files from groupID folder
-	// e.g. https://repo.maven.apache.org/maven2/args4j/maven-metadata.xml
-	if len(strings.Split(url, "/")) < 7 {
-		return nil, nil
-	}
 	return &meta, nil
 }
 
-func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
-	resp, err := c.httpClient.Get(url)
+func (c *Crawler) fetchSHA1(ctx context.Context, url string) ([]byte, error) {
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		fmt.Println("check this error -----")
-		fmt.Println(err)
+		return nil, xerrors.Errorf("unable to new HTTP request: %w", err)
 	}
-	// some projects don't have xxx.jar and xxx.jar.sha1 files
-	if resp != nil && resp.StatusCode == http.StatusNotFound {
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, xerrors.Errorf("http get error (%s): %w", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// These are cases when version dir contains link to sha1 file
+	// But file doesn't exist
+	// e.g. https://repo.maven.apache.org/maven2/com/adobe/aem/uber-jar/6.4.8.2/uber-jar-6.4.8.2-sources.jar.sha1
+	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
 	}
-	if err != nil {
-		return nil, xerrors.Errorf("can't get sha1 from %s: %w", url, err)
-	}
-	defer resp.Body.Close()
 
 	sha1, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -364,9 +480,35 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 		}
 	}
 	if len(sha1b) == 0 {
-		return nil, xerrors.Errorf("failed to decode sha1 %s: %w", url, err)
+		c.wrongSHA1Values = append(c.wrongSHA1Values, fmt.Sprintf("%s (%s)", url, err))
+		return nil, nil
 	}
 	return sha1b, nil
+}
+
+func versionFromSha1URL(artifactId, sha1URL string) string {
+	ss := strings.Split(sha1URL, "/")
+	fileName := ss[len(ss)-1]
+	if !strings.HasPrefix(fileName, artifactId) {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(fileName, artifactId+"-"), ".jar.sha1")
+}
+
+// linkFromSelection returns the link from goquery.Selection.
+// There are times when maven breaks `text` - it removes part of the `text` and adds the suffix `...` (`.../` for dirs).
+// e.g. `<a href="v1.1.0-226-g847ecff2d8e26f249422247d7665fe15f07b1744/">v1.1.0-226-g847ecff2d8e26f249422247d7665fe15.../</a>`
+// In this case we should take `href`.
+// But we don't need to get `href` if the text isn't broken.
+// To avoid checking unnecessary links.
+// e.g. `<pre id="contents"><a href="https://repo.maven.apache.org/maven2/abbot/">../</a>`
+func linkFromSelection(selection *goquery.Selection) string {
+	link := selection.Text()
+	// maven uses `.../` suffix for dirs and `...` suffix for files.
+	if href, ok := selection.Attr("href"); ok && (strings.HasSuffix(link, ".../") || (strings.HasSuffix(link, "..."))) {
+		link = href
+	}
+	return link
 }
 
 func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
@@ -484,11 +626,11 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 		// if err != nil {
 		// 	log.Println(err)
 		// }
-		printJson := PrintJson{
+		printJson := WriteToFile{
 			Filepath: c.licensedir + types.NormalizedlicenseFileName,
 			Data:     normalizedLicenseMap,
 		}
-		c.jsonCh <- printJson
+		c.writeToFileChan <- printJson
 	}()
 
 	return nil
