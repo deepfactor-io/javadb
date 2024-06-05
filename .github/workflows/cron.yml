@@ -12,7 +12,7 @@ jobs:
   build:
     name: Build DB
     timeout-minutes: 1200
-    runs-on: [self-hosted,javadb-runner]
+    runs-on: [self-hosted, javadb-runner]
     steps:
       - name: Set up Go
         uses: actions/setup-go@v2
@@ -23,7 +23,7 @@ jobs:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v2
         with:
-          ref: 3.6-DEEP-10047-a
+          ref: 3.6-DEEP-10047-c
 
       - name: Get DB version
         id: get_version
@@ -37,35 +37,6 @@ jobs:
 
       - name: Crawl indexes
         run: make db-crawl
-
-      - name: Build database
-        run: make db-build
-
-      - name: Compress database
-        run: make db-compress
-
-      - name: Move DB
-        run: mv cache/db/javadb.tar.gz .
-
-      - name: Login to GitHub Packages Container registry
-        uses: docker/login-action@v1
-        with:
-          registry: ghcr.io
-          username: ${{ secrets.GH_USER }}
-          password: ${{ secrets.JAVADB_GH_REGISTRY_TOKEN }}
-
-      - name: Upload assets to GHCR
-        env:
-          DB_VERSION: ${{ steps.get_version.outputs.DB_VERSION }}
-        run: |
-          oras version
-          oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
-          ghcr.io/${{ github.repository }}:${DB_VERSION} \
-          javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
-
-      - name: clean javadb
-        run: |
-          rm -rf cache/db/df-java.db cache/db/metadata.json javadb.tar.gz
 
       - name: Build dependency database
         run: make dep-db-build
