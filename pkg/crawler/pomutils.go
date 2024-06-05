@@ -56,8 +56,9 @@ func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 
 	resp, err := c.http.Get(url)
 	if err != nil {
-		fmt.Println("check this error -----")
+		fmt.Printf("[Status : %d]========================", resp.StatusCode)
 		fmt.Println(err)
+		fmt.Println("==================================================")
 	}
 
 	if resp != nil && resp.StatusCode == http.StatusNotFound {

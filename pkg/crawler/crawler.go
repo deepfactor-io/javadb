@@ -447,6 +447,7 @@ func (c *Crawler) fetchSHA1(ctx context.Context, url string) ([]byte, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		fmt.Printf("Error [Status : %d]========================", resp.StatusCode)
 		return nil, xerrors.Errorf("http get error (%s): %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
