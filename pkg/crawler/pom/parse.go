@@ -47,13 +47,13 @@ func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 		content: content,
 	}
 
-	// result, err := p.analyze(root, analysisOptions{})
-	// if err != nil {
-	// 	return nil, nil, xerrors.Errorf("analyze error: %w", err)
-	// }
+	result, err := p.analyze(root, analysisOptions{})
+	if err != nil {
+		return nil, nil, xerrors.Errorf("analyze error: %w", err)
+	}
 
-	// // Cache root POM
-	// p.cache.put(result.artifact, result)
+	// Cache root POM
+	p.cache.put(result.artifact, result)
 
 	_, deps, _ := p.parseRoot(root.artifact())
 	return content, deps, nil
