@@ -52,7 +52,7 @@ func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
 	// define parser here
-	parser := pom.NewParser()
+	parser := pom.NewParser(c.pomCache)
 
 	resp, err := c.httpClient.Get(url)
 	if err != nil {

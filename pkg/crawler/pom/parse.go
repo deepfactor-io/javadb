@@ -23,17 +23,19 @@ const (
 )
 
 type Parser struct {
-	cache              *pomCache
+	cache              *PomCache
 	remoteRepositories []string
 	httpClient         http.Client
+	// numParents         int
 }
 
-func NewParser() *Parser {
+func NewParser(cache *PomCache) *Parser {
 	remoteRepos := []string{centralURL}
 	return &Parser{
-		cache:              newPOMCache(),
+		cache:              cache,
 		remoteRepositories: remoteRepos,
 		httpClient:         http.Client{},
+		// numParents:         0,
 	}
 }
 

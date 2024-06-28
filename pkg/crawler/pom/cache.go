@@ -7,27 +7,27 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-const cacheSize = 100
+const cacheSize = 10000
 
-type pomCache struct {
+type PomCache struct {
 	mu    sync.Mutex
 	cache *lru.Cache[string, *analysisResult]
 }
 
-func newPOMCache() *pomCache {
+func NewPOMCache() *PomCache {
 	cache, _ := lru.New[string, *analysisResult](cacheSize)
-	return &pomCache{
+	return &PomCache{
 		cache: cache,
 	}
 }
 
-func (c *pomCache) put(art artifact, result analysisResult) {
+func (c *PomCache) put(art artifact, result analysisResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cache.Add(c.key(art), &result)
 }
 
-func (c *pomCache) get(art artifact) *analysisResult {
+func (c *PomCache) get(art artifact) *analysisResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	result, ok := c.cache.Get(c.key(art))
@@ -37,6 +37,6 @@ func (c *pomCache) get(art artifact) *analysisResult {
 	return result
 }
 
-func (c *pomCache) key(art artifact) string {
+func (c *PomCache) key(art artifact) string {
 	return fmt.Sprintf("%s:%s", art.Name(), art.Version.String())
 }
