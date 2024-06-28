@@ -81,9 +81,10 @@ func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	project.GroupID = pomXML.GroupId
 	project.ArtifactID = pomXML.ArtifactId
 	project.Version = pomXML.Version
-	if len(deps) == 1 {
-		project.Dependencies = deps[0].DependsOn
-	}
+	project.Dependencies = deps
+	// if len(deps) == 1 {
+	// 	project.Dependencies = deps[0].DependsOn
+	// }
 
 	for _, v := range pomXML.Licenses.License {
 		project.Licenses = append(project.Licenses, License{

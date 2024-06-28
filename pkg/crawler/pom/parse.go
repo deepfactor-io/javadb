@@ -26,7 +26,6 @@ type Parser struct {
 	cache              *PomCache
 	remoteRepositories []string
 	httpClient         http.Client
-	// numParents         int
 }
 
 func NewParser(cache *PomCache) *Parser {
@@ -35,11 +34,10 @@ func NewParser(cache *PomCache) *Parser {
 		cache:              cache,
 		remoteRepositories: remoteRepos,
 		httpClient:         http.Client{},
-		// numParents:         0,
 	}
 }
 
-func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
+func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []string, error) {
 	content, err := parsePom(r)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to parse POM: %w", err)
@@ -57,7 +55,11 @@ func (p *Parser) Parse(r ReadSeekerAt) (*pomXML, []Dependency, error) {
 	// Cache root POM
 	p.cache.put(result.artifact, result)
 
-	_, deps, _ := p.parseRoot(root.artifact())
+	deps := make([]string, 0)
+	for _, v := range result.dependencies {
+		deps = append(deps, fmt.Sprintf("%v:%v:%v", v.GroupID, v.ArtifactID, v.Version))
+	}
+
 	return content, deps, nil
 
 }
