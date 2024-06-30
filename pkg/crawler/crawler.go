@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
 	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
@@ -234,19 +235,13 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			licenseKeys := lo.Uniq(pomValues.Licenses)
 			sort.Strings(licenseKeys)
 
-			dependencyList := make([]string, 0)
-			for _, d := range pomValues.Dependencies {
-				if (d.Scope != "" && d.Scope != "compile") || d.Optional {
-					continue
-				}
-				dependencyList = append(dependencyList, fmt.Sprintf("%s:%s:%s", d.GroupID, d.ArtifactID, d.Version))
-			}
+			deps := pomValues.Dependencies
 
 			v := Version{
 				Version:    version,
 				SHA1:       sha1,
 				License:    strings.Join(licenseKeys, "|"),
-				Dependency: strings.Join(dependencyList, ","),
+				Dependency: strings.Join(deps, ","),
 			}
 
 			versions = append(versions, v)
@@ -339,26 +334,35 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 }
 
 func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
+
 	var pomParsedValues PomParsedValues
-	pomXml, err := parseAndSubstitutePom(url)
+
+	parser := pom.NewParser()
+
+	pomXml, deps, err := parser.Parse(url)
 	if err != nil {
 		return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
 	}
 
-	if len(pomXml.Licenses) == 0 && len(pomXml.Dependencies) == 0 {
+	// Test this
+	if pomXml == nil {
 		return pomParsedValues, nil
 	}
 
-	for _, l := range pomXml.Licenses {
-		l.LicenseKey = getLicenseKey(l)
+	if len(pomXml.Licenses.License) > 0 {
+		for _, v := range pomXml.Licenses.License {
+			l := License{v.Name, v.URL, v.LicenseKey, v.ClassificationConfidence}
+			l.LicenseKey = getLicenseKey(l)
 
-		// update uniqueLicenseKeys map
-		c.uniqueLicenseKeys.Set(l.LicenseKey, l)
+			// update uniqueLicenseKeys map
+			c.uniqueLicenseKeys.Set(l.LicenseKey, l)
 
-		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+			pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+
+		}
 	}
 
-	pomParsedValues.Dependencies = pomXml.Dependencies
+	pomParsedValues.Dependencies = deps
 
 	return pomParsedValues, nil
 
