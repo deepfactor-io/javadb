@@ -8,22 +8,18 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
-	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
 	"github.com/samber/lo"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
-	cmap "github.com/orcaman/concurrent-map/v2"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/xerrors"
 )
@@ -34,21 +30,14 @@ const githubRawURL = "https://raw.githubusercontent.com"
 const githubBlob = "/blob/"
 
 type Crawler struct {
-	dir        string
-	licensedir string
-	http       *retryablehttp.Client
+	dir  string
+	http *retryablehttp.Client
 
 	rootUrl string
 	wg      sync.WaitGroup
 	urlCh   chan string
 	limit   *semaphore.Weighted
 	opt     Option
-
-	// license classifier
-	classifier *backend.ClassifierBackend
-
-	// uniqueLicenseKeys : key is hash of license url or name in POM, whichever available
-	uniqueLicenseKeys cmap.ConcurrentMap[string, License]
 }
 
 type Option struct {
@@ -73,30 +62,14 @@ func NewCrawler(opt Option) Crawler {
 	indexDir := filepath.Join(opt.CacheDir, types.IndexesDir)
 	log.Printf("Index dir %s", indexDir)
 
-	licensedir := filepath.Join(opt.CacheDir, types.LicenseDir)
-
-	err := os.MkdirAll(licensedir, os.ModePerm)
-	if err != nil {
-		log.Panicf("panic while creating license cache directory %s .Error:%s", licensedir, err)
-	}
-	log.Printf("License dir %s", licensedir)
-
-	classifier, err := backend.New()
-	if err != nil {
-		log.Panicf("panic while creating license classifier backend %s", err)
-	}
-
 	return Crawler{
-		dir:        indexDir,
-		licensedir: licensedir,
-		http:       client,
+		dir:  indexDir,
+		http: client,
 
-		rootUrl:           opt.RootUrl,
-		urlCh:             make(chan string, opt.Limit*10),
-		limit:             semaphore.NewWeighted(opt.Limit),
-		classifier:        classifier,
-		opt:               opt,
-		uniqueLicenseKeys: cmap.New[License](),
+		rootUrl: opt.RootUrl,
+		urlCh:   make(chan string, opt.Limit*10),
+		limit:   semaphore.NewWeighted(opt.Limit),
+		opt:     opt,
 	}
 }
 
@@ -155,8 +128,7 @@ loop:
 	}
 	log.Println("Crawl completed")
 
-	// fetch license information
-	return c.classifyLicense(ctx)
+	return nil
 }
 
 // Visit : visits the maven urls.
@@ -349,265 +321,8 @@ func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error
 		return pomParsedValues, nil
 	}
 
-	if len(pomXml.Licenses.License) > 0 {
-		for _, v := range pomXml.Licenses.License {
-			l := License{v.Name, v.URL, v.LicenseKey, v.ClassificationConfidence}
-			l.LicenseKey = getLicenseKey(l)
-
-			// update uniqueLicenseKeys map
-			c.uniqueLicenseKeys.Set(l.LicenseKey, l)
-
-			pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
-
-		}
-	}
-
 	pomParsedValues.Dependencies = deps
 
 	return pomParsedValues, nil
 
-}
-
-func (c *Crawler) classifyLicense(ctx context.Context) error {
-	normalizedLicenseMap := make(map[string]string)
-
-	// prepare classifier data i.e create temporary files with license text to be used for classification
-	licenseFiles, err := c.prepareClassifierData(ctx)
-	if err != nil {
-		return err
-	}
-
-	files := make([]string, 0)
-	filesLicenseMap := make(map[string]License)
-
-	// change license file list to map
-	for _, data := range licenseFiles {
-		if _, ok := filesLicenseMap[data.FileName]; !ok {
-			filesLicenseMap[data.FileName] = data.License
-			files = append(files, data.FileName)
-		}
-	}
-
-	if len(filesLicenseMap) == 0 {
-		return nil
-	}
-
-	// classify licenses
-
-	// 1 minute is the timeout for license classification of a file
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	// c.opt.Limit is the number of concurrent tasks spawned to process license files
-	errs := c.classifier.ClassifyLicensesWithContext(ctx, int(c.opt.Limit), files, true)
-	if len(errs) > 0 {
-		log.Println("errors in license classification ", errs)
-	}
-
-	// extract results
-	results := c.classifier.GetResults()
-	sort.Sort(results)
-
-	// process results to update the normalizedLicenseMap
-	if results.Len() > 0 {
-		for _, r := range results {
-			if licenseVal, ok := filesLicenseMap[r.Filename]; ok {
-				// skip non license detection results
-				if r.MatchType != "License" {
-					continue
-				}
-
-				// since results are sorted, we can skip processing of data with confidence <90%
-				if r.Confidence < 0.9 {
-					break
-				}
-
-				// skip processing since a higher confidence result is already processed
-				if licenseVal.ClassificationConfidence > r.Confidence {
-					// since there are multiple matches available with confidence > 90% , fallback to license name if available
-					// else pick highest confidence match
-					if len(licenseVal.Name) > 0 {
-						// rest license key so that it fallsback to name
-						delete(normalizedLicenseMap, licenseVal.LicenseKey)
-					}
-					continue
-				}
-
-				licenseVal.ClassificationConfidence = r.Confidence
-				filesLicenseMap[r.Filename] = licenseVal
-
-				// update normalized license map
-				normalizedLicenseMap[licenseVal.LicenseKey] = r.Name
-			}
-		}
-	}
-
-	defer func() {
-		// update normalized license map for license keys which couldn't be classified or had no url in pom for classification
-		uniqLicenseKeys := c.uniqueLicenseKeys.Items()
-		for key, license := range uniqLicenseKeys {
-			if _, ok := normalizedLicenseMap[key]; !ok {
-				if len(license.Name) > 0 {
-					normalizedLicenseMap[key] = license.Name
-				}
-			}
-		}
-
-		err := fileutil.WriteJSON(c.licensedir+types.NormalizedlicenseFileName, normalizedLicenseMap)
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-
-	return nil
-}
-
-func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta, error) {
-	log.Println("Preparing license classifier data")
-
-	var licenseFiles []licenseFilesMeta
-
-	// switch from concurrent to normal map
-	uniqLicenseKeyMap := c.uniqueLicenseKeys.Items()
-	uniqueLicenseKeyList := c.uniqueLicenseKeys.Keys()
-
-	client := http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	licenseKeyChannel := make(chan string, len(uniqueLicenseKeyList))
-
-	log.Printf("Total license keys to be processed %d", len(uniqueLicenseKeyList))
-
-	// dump license keys to the channel so that they can be processed
-	for _, key := range uniqueLicenseKeyList {
-		licenseKeyChannel <- key
-	}
-
-	limit := semaphore.NewWeighted(c.opt.Limit)
-
-	// error channel
-	errCh := make(chan error)
-	defer close(errCh)
-
-	// status channel to track processing of license keys
-	type status struct {
-		Meta licenseFilesMeta
-		Done bool
-	}
-	prepStatus := make(chan status, len(uniqueLicenseKeyList))
-	defer close(prepStatus)
-
-	// process license keys channel
-	go func() {
-		for licenseKey := range licenseKeyChannel {
-
-			if err := limit.Acquire(ctx, 1); err != nil {
-				errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
-			}
-
-			// process license key to generate license file
-			go func(licenseKey string) {
-				defer limit.Release(1)
-
-				licenseFileName := getLicenseFileName(c.licensedir, licenseKey)
-				licenseMeta := uniqLicenseKeyMap[licenseKey]
-				ok, err := c.generateLicenseFile(client, licenseFileName, licenseMeta)
-				if err != nil {
-					errCh <- xerrors.Errorf("generateLicenseFile error: %w", err)
-				}
-
-				// update status post processing of license key
-				prepStatus <- status{
-					Done: ok,
-					Meta: licenseFilesMeta{
-						License:  licenseMeta,
-						FileName: licenseFileName,
-					},
-				}
-			}(licenseKey)
-		}
-	}()
-
-	count := 0
-loop:
-	for {
-		select {
-		case status := <-prepStatus:
-			count++
-			if status.Done {
-				licenseFiles = append(licenseFiles, status.Meta)
-			}
-
-			if count%1000 == 0 {
-				log.Printf("Processed %d license keys", count)
-			}
-
-			if count == len(uniqueLicenseKeyList) {
-				close(licenseKeyChannel)
-				break loop
-			}
-		case err := <-errCh:
-			close(licenseKeyChannel)
-			return licenseFiles, err
-
-		}
-	}
-
-	log.Println("Preparation of license classifier data completed")
-
-	return licenseFiles, nil
-
-}
-
-func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string, licenseMeta License) (bool, error) {
-
-	// if url not available then no point using the license classifier
-	// Names can be analyzed but in most cases license classifier does not result in any matches
-	if !strings.HasPrefix(licenseMeta.URL, "http") {
-		return false, nil
-	}
-
-	// create file
-	f, err := os.Create(licenseFileName)
-	if err != nil {
-		return false, err
-	}
-
-	defer f.Close()
-
-	// normalize github urls so that raw content is downloaded
-	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
-
-	// TODO: Check if we need to use a github url parser library for the same
-	if strings.HasPrefix(licenseMeta.URL, githubURL) {
-		// remove blob from url
-		licenseMeta.URL = strings.Replace(licenseMeta.URL, githubBlob, "/", 1)
-
-		// raw url
-		licenseMeta.URL = strings.TrimPrefix(licenseMeta.URL, githubURL)
-		licenseMeta.URL = githubRawURL + licenseMeta.URL
-
-	}
-
-	// download license url contents
-	resp, err := client.Get(licenseMeta.URL)
-	if resp == nil {
-		return false, nil
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-	if err != nil {
-		return false, nil
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(f, resp.Body)
-	if err != nil {
-		return false, nil
-	}
-
-	return true, nil
 }
