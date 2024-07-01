@@ -86,20 +86,20 @@ func NewCrawler(opt Option) Crawler {
 	}
 	log.Printf("License dir %s", licensedir)
 
-	classifier, err := backend.New()
-	if err != nil {
-		log.Panicf("panic while creating license classifier backend %s", err)
-	}
+	// classifier, err := backend.New()
+	// if err != nil {
+	// 	log.Panicf("panic while creating license classifier backend %s", err)
+	// }
 
 	return Crawler{
 		dir:        indexDir,
 		licensedir: licensedir,
 		httpClient: client,
 
-		rootUrl:           opt.RootUrl,
-		urlCh:             make(chan string, opt.Limit*10),
-		limit:             semaphore.NewWeighted(opt.Limit),
-		classifier:        classifier,
+		rootUrl: opt.RootUrl,
+		urlCh:   make(chan string, opt.Limit*10),
+		limit:   semaphore.NewWeighted(opt.Limit),
+		// classifier:        classifier,
 		opt:               opt,
 		uniqueLicenseKeys: cmap.New[License](),
 
@@ -189,8 +189,9 @@ loop:
 	}
 	log.Println("Crawl completed")
 
-	// fetch license information
-	return c.classifyLicense(ctx)
+	return nil
+	// // fetch license information
+	// return c.classifyLicense(ctx)
 }
 
 // Visit : visits the maven urls.
@@ -385,14 +386,14 @@ func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error
 		return pomParsedValues, nil
 	}
 
-	for _, l := range pomXml.Licenses {
-		l.LicenseKey = getLicenseKey(l)
+	// for _, l := range pomXml.Licenses {
+	// 	l.LicenseKey = getLicenseKey(l)
 
-		// update uniqueLicenseKeys map
-		c.uniqueLicenseKeys.Set(l.LicenseKey, l)
+	// 	// update uniqueLicenseKeys map
+	// 	c.uniqueLicenseKeys.Set(l.LicenseKey, l)
 
-		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
-	}
+	// 	pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+	// }
 
 	pomParsedValues.Dependencies = pomXml.Dependencies
 
