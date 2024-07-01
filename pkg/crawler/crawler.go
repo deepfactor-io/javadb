@@ -485,15 +485,15 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 			}
 		}
 
-		// err := fileutil.WriteJSON(c.licensedir+types.NormalizedlicenseFileName, normalizedLicenseMap)
-		// if err != nil {
-		// 	log.Println(err)
-		// }
-		printJson := PrintJson{
-			Filepath: c.licensedir + types.NormalizedlicenseFileName,
-			Data:     normalizedLicenseMap,
+		err := fileutil.WriteJSON(c.licensedir+types.NormalizedlicenseFileName, normalizedLicenseMap)
+		if err != nil {
+			log.Println(err)
 		}
-		c.jsonCh <- printJson
+		// printJson := PrintJson{
+		// 	Filepath: c.licensedir + types.NormalizedlicenseFileName,
+		// 	Data:     normalizedLicenseMap,
+		// }
+		// c.jsonCh <- printJson
 	}()
 
 	return nil
