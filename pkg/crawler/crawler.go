@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
 	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
@@ -35,7 +36,7 @@ const githubBlob = "/blob/"
 type Crawler struct {
 	dir        string
 	licensedir string
-	http       *retryablehttp.Client
+	httpClient *retryablehttp.Client
 
 	rootUrl string
 	wg      sync.WaitGroup
@@ -48,6 +49,11 @@ type Crawler struct {
 
 	// uniqueLicenseKeys : key is hash of license url or name in POM, whichever available
 	uniqueLicenseKeys cmap.ConcurrentMap[string, License]
+
+	// pom cache
+	pomCache *pom.PomCache
+
+	jsonCh chan PrintJson
 }
 
 type Option struct {
@@ -80,23 +86,31 @@ func NewCrawler(opt Option) Crawler {
 	}
 	log.Printf("License dir %s", licensedir)
 
-	classifier, err := backend.New()
-	if err != nil {
-		log.Panicf("panic while creating license classifier backend %s", err)
-	}
+	// classifier, err := backend.New()
+	// if err != nil {
+	// 	log.Panicf("panic while creating license classifier backend %s", err)
+	// }
 
 	return Crawler{
 		dir:        indexDir,
 		licensedir: licensedir,
-		http:       client,
+		httpClient: client,
 
-		rootUrl:           opt.RootUrl,
-		urlCh:             make(chan string, opt.Limit*10),
-		limit:             semaphore.NewWeighted(opt.Limit),
-		classifier:        classifier,
+		rootUrl: opt.RootUrl,
+		urlCh:   make(chan string, opt.Limit*10),
+		limit:   semaphore.NewWeighted(opt.Limit),
+		// classifier:        classifier,
 		opt:               opt,
 		uniqueLicenseKeys: cmap.New[License](),
+
+		pomCache: pom.NewPOMCache(),
+		jsonCh:   make(chan PrintJson),
 	}
+}
+
+type PrintJson struct {
+	Filepath string
+	Data     interface{}
 }
 
 func (c *Crawler) Crawl(ctx context.Context) error {
@@ -104,6 +118,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	errCh := make(chan error)
 	defer close(errCh)
+
+	// jsonCh := make(chan PrintJson)
+	// defer close(jsonCh)
 
 	// Add a root url
 	c.urlCh <- c.rootUrl
@@ -118,7 +135,10 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	// For the HTTP loop
 	go func() {
-		defer func() { crawlDone <- struct{}{} }()
+		defer func() {
+			close(c.jsonCh)
+			// crawlDone <- struct{}{}
+		}()
 
 		var count int
 		for url := range c.urlCh {
@@ -127,6 +147,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				log.Printf("Count: %d", count)
 			}
 			if err := c.limit.Acquire(ctx, 1); err != nil {
+				fmt.Println("error in c.limit.Acquire ------------------")
+				fmt.Println(err)
+				fmt.Println("--------------------------------------")
 				errCh <- xerrors.Errorf("semaphore acquire error: %w", err)
 				return
 			}
@@ -134,10 +157,22 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				defer c.limit.Release(1)
 				defer c.wg.Done()
 				if err := c.Visit(url); err != nil {
+					fmt.Println("error in visit ------------------")
+					fmt.Println(err)
+					fmt.Println("--------------------------------------")
 					errCh <- xerrors.Errorf("visit error: %w", err)
 				}
 			}(url)
 		}
+	}()
+
+	go func() {
+		for x := range c.jsonCh {
+			if err := fileutil.WriteJSON(x.Filepath, x.Data); err != nil {
+				xerrors.Errorf("json write error: %w", err)
+			}
+		}
+		crawlDone <- struct{}{}
 	}()
 
 loop:
@@ -154,17 +189,24 @@ loop:
 	}
 	log.Println("Crawl completed")
 
-	// fetch license information
-	return c.classifyLicense(ctx)
+	return nil
+	// // fetch license information
+	// return c.classifyLicense(ctx)
 }
 
 // Visit : visits the maven urls.
 func (c *Crawler) Visit(url string) error {
-	resp, err := c.http.Get(url)
+	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return xerrors.Errorf("http get error (%s): %w", url, err)
 	}
 	defer resp.Body.Close()
+
+	// There are cases when url doesn't exist
+	// e.g. https://repo.maven.apache.org/maven2/io/springboot/ai/spring-ai-anthropic/
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
 
 	d, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
@@ -228,19 +270,11 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			licenseKeys := lo.Uniq(pomValues.Licenses)
 			sort.Strings(licenseKeys)
 
-			dependencyList := make([]string, 0)
-			for _, d := range pomValues.Dependencies {
-				if (d.Scope != "" && d.Scope != "compile") || d.Optional {
-					continue
-				}
-				dependencyList = append(dependencyList, fmt.Sprintf("%s:%s:%s", d.GroupID, d.ArtifactID, d.Version))
-			}
-
 			v := Version{
 				Version:    version,
 				SHA1:       sha1,
 				License:    strings.Join(licenseKeys, "|"),
-				Dependency: strings.Join(dependencyList, ","),
+				Dependency: strings.Join(pomValues.Dependencies, ","),
 			}
 
 			versions = append(versions, v)
@@ -258,18 +292,29 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 	}
 	fileName := fmt.Sprintf("%s.json", index.ArtifactID)
 	filePath := filepath.Join(c.dir, index.GroupID, fileName)
-	if err := fileutil.WriteJSON(filePath, index); err != nil {
-		return xerrors.Errorf("json write error: %w", err)
+	// if err := fileutil.WriteJSON(filePath, index); err != nil {
+	// 	return xerrors.Errorf("json write error: %w", err)
+	// }
+	printJson := PrintJson{
+		Filepath: filePath,
+		Data:     index,
 	}
+	c.jsonCh <- printJson
 	return nil
 }
 
 func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
-	resp, err := c.http.Get(url)
+	resp, err := c.httpClient.Get(url)
 	if err != nil {
 		return nil, xerrors.Errorf("can't get url: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// There are cases when metadata.xml file doesn't exist
+	// e.g. https://repo.maven.apache.org/maven2/io/springboot/ai/spring-ai-vertex-ai-gemini-spring-boot-starter/maven-metadata.xml
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil
+	}
 
 	var meta Metadata
 	if err = xml.NewDecoder(resp.Body).Decode(&meta); err != nil {
@@ -289,9 +334,13 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 }
 
 func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
-	resp, err := c.http.Get(url)
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		fmt.Println("check this error -----")
+		fmt.Println(err)
+	}
 	// some projects don't have xxx.jar and xxx.jar.sha1 files
-	if resp.StatusCode == http.StatusNotFound {
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
 	}
 	if err != nil {
@@ -328,7 +377,7 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 
 func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
 	var pomParsedValues PomParsedValues
-	pomXml, err := parseAndSubstitutePom(url)
+	pomXml, err := c.parseAndSubstitutePom(url)
 	if err != nil {
 		return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
 	}
@@ -337,14 +386,14 @@ func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error
 		return pomParsedValues, nil
 	}
 
-	for _, l := range pomXml.Licenses {
-		l.LicenseKey = getLicenseKey(l)
+	// for _, l := range pomXml.Licenses {
+	// 	l.LicenseKey = getLicenseKey(l)
 
-		// update uniqueLicenseKeys map
-		c.uniqueLicenseKeys.Set(l.LicenseKey, l)
+	// 	// update uniqueLicenseKeys map
+	// 	c.uniqueLicenseKeys.Set(l.LicenseKey, l)
 
-		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
-	}
+	// 	pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+	// }
 
 	pomParsedValues.Dependencies = pomXml.Dependencies
 
@@ -441,6 +490,11 @@ func (c *Crawler) classifyLicense(ctx context.Context) error {
 		if err != nil {
 			log.Println(err)
 		}
+		// printJson := PrintJson{
+		// 	Filepath: c.licensedir + types.NormalizedlicenseFileName,
+		// 	Data:     normalizedLicenseMap,
+		// }
+		// c.jsonCh <- printJson
 	}()
 
 	return nil

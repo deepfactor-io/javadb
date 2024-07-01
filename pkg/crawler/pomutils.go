@@ -1,65 +1,28 @@
 package crawler
 
 import (
-	"encoding/xml"
-	"io"
+	"fmt"
 	"net/http"
 	"strings"
 
-	"golang.org/x/net/html/charset"
+	pom "github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"golang.org/x/xerrors"
 )
 
 type PomParsedValues struct {
 	Licenses     []string
-	Dependencies []Dependency
+	Dependencies []string
 }
 
 type PomProject struct {
-	GroupID      string       `xml:"groupId"`
-	ArtifactID   string       `xml:"artifactId"`
-	Version      string       `xml:"version"`
-	Name         string       `xml:"name"`
-	Description  string       `xml:"description"`
-	URL          string       `xml:"url"`
-	Licenses     []License    `xml:"licenses>license"`
-	Dependencies []Dependency `xml:"dependencies>dependency"`
-	Properties   properties   `xml:"properties"`
-}
-
-type property struct {
-	XMLName xml.Name
-	Value   string `xml:",chardata"`
-}
-
-type properties map[string]string
-
-func (props *properties) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	*props = properties{}
-	for {
-		var p property
-		err := d.Decode(&p)
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return err
-		}
-
-		(*props)[p.XMLName.Local] = p.Value
-	}
-	return nil
-}
-
-func substitutePlaceholders(project *PomProject) {
-	for key, value := range project.Properties {
-		placeholder := "${" + key + "}"
-		// Substitute placeholders in dependencies
-		for i := range project.Dependencies {
-			project.Dependencies[i].GroupID = strings.ReplaceAll(project.Dependencies[i].GroupID, placeholder, value)
-			project.Dependencies[i].ArtifactID = strings.ReplaceAll(project.Dependencies[i].ArtifactID, placeholder, value)
-			project.Dependencies[i].Version = strings.ReplaceAll(project.Dependencies[i].Version, placeholder, value)
-		}
-	}
+	GroupID      string `xml:"groupId"`
+	ArtifactID   string `xml:"artifactId"`
+	Version      string `xml:"version"`
+	Name         string `xml:"name"`
+	Description  string `xml:"description"`
+	URL          string `xml:"url"`
+	Licenses     []License
+	Dependencies []string
 }
 
 type License struct {
@@ -85,11 +48,19 @@ func preprocessXML(xmlData string) (string, error) {
 	return xmlData, nil
 }
 
-func parseAndSubstitutePom(url string) (PomProject, error) {
+func (c *Crawler) parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
-	resp, err := http.Get(url)
-	if resp.StatusCode == http.StatusNotFound {
+	// define parser here
+	parser := pom.NewParser(c.pomCache)
+
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		fmt.Println("check this error -----")
+		fmt.Println(err)
+	}
+
+	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return project, nil
 	}
 	if err != nil {
@@ -97,24 +68,32 @@ func parseAndSubstitutePom(url string) (PomProject, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	rr, err := pom.NewReadSeekerAt(resp.Body)
 	if err != nil {
-		return project, xerrors.Errorf("error reading response body from %s: %w", url, err)
+		return project, xerrors.Errorf("reader error: %w", err)
 	}
 
-	xmlData, err := preprocessXML(string(body))
+	pomXML, deps, err := parser.Parse(rr)
 	if err != nil {
-		return project, xerrors.Errorf("error preprocessing xml from %s: %w", url, err)
+		return project, xerrors.Errorf("cant parse pom %s: %w", url, err)
 	}
 
-	decoder := xml.NewDecoder(strings.NewReader(xmlData))
-	decoder.CharsetReader = charset.NewReaderLabel
-	err = decoder.Decode(&project)
-	if err != nil {
-		return project, xerrors.Errorf("error decoding pom.xml from %s: %w", url, err)
-	}
+	project.GroupID = pomXML.GroupId
+	project.ArtifactID = pomXML.ArtifactId
+	project.Version = pomXML.Version
+	project.Dependencies = deps
+	// if len(deps) == 1 {
+	// 	project.Dependencies = deps[0].DependsOn
+	// }
 
-	substitutePlaceholders(&project)
+	for _, v := range pomXML.Licenses.License {
+		project.Licenses = append(project.Licenses, License{
+			Name:                     v.Name,
+			URL:                      v.URL,
+			LicenseKey:               v.LicenseKey,
+			ClassificationConfidence: v.ClassificationConfidence,
+		})
+	}
 
 	return project, nil
 }
