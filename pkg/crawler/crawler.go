@@ -85,6 +85,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	go func() {
 		c.wg.Wait()
+		fmt.Println("close urlCH !!!!")
 		close(c.urlCh)
 	}()
 
@@ -110,6 +111,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				if err := c.Visit(url); err != nil {
 					errCh <- xerrors.Errorf("visit error: %w", err)
 				}
+				fmt.Println("visit is done !!!!")
 			}(url)
 		}
 	}()
@@ -119,6 +121,7 @@ loop:
 		select {
 		// Wait for DB update to complete
 		case <-crawlDone:
+			fmt.Println("crawl done ran !!!! -- so break loop")
 			break loop
 		case err := <-errCh:
 			close(c.urlCh)
