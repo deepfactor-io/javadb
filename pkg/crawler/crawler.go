@@ -93,7 +93,10 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	// For the HTTP loop
 	go func() {
-		defer func() { crawlDone <- struct{}{} }()
+		defer func() {
+			fmt.Println("Crawl done ran !!!")
+			crawlDone <- struct{}{}
+		}()
 
 		var count int
 		for url := range c.urlCh {
@@ -111,7 +114,6 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				if err := c.Visit(url); err != nil {
 					errCh <- xerrors.Errorf("visit error: %w", err)
 				}
-				fmt.Println("visit is done !!!!")
 			}(url)
 		}
 	}()
