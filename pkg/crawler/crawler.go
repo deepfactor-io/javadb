@@ -16,6 +16,7 @@ import (
 	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
+	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/samber/lo"
 
 	"github.com/PuerkitoBio/goquery"
@@ -75,6 +76,18 @@ func NewCrawler(opt Option) Crawler {
 
 func (c *Crawler) Crawl(ctx context.Context) error {
 	log.Println("Crawl maven repository and save indexes")
+
+	app, err := newrelic.NewApplication(
+		newrelic.ConfigAppName("dfjavadb"),
+		newrelic.ConfigLicense(""),
+		newrelic.ConfigAppLogForwardingEnabled(true),
+	)
+	if err != nil {
+		fmt.Println("some error")
+	}
+
+	txn := app.StartTransaction("javadb_logs")
+	defer txn.End()
 
 	errCh := make(chan error)
 	defer close(errCh)
