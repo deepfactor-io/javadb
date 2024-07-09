@@ -1,14 +1,14 @@
 ---
-name: Trivy Java DB for latest version
+name: Trivy Java DB
 on:
   schedule:
-    - cron: "0 1 */2 * *" # runs on  every 2days at 1am
+    - cron: "0 0 * * *" # update indexes every day in 00:00
   workflow_dispatch:
     inputs:
       buildBranch:
         description: "Build Branch: full/patch build branch name, the branch must exist for this repo"
         required: false
-        default: "3.6"
+        default: "3.8"
 env:
   GH_USER: aqua-bot
   packages: write # for GHCR
@@ -63,26 +63,3 @@ jobs:
           oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
           ghcr.io/${{ github.repository }}:${DB_VERSION} \
           javadb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
-
-      - name: clean javadb
-        run: |
-          rm -rf cache/db/df-java.db cache/db/metadata.json javadb.tar.gz
-
-      - name: Build dependency database
-        run: make dep-db-build
-
-      - name: Compress dependency database
-        run: make dep-db-compress
-
-      - name: Move Dependency DB
-        run: mv cache/dep-db/javadependencydb.tar.gz .
-
-      - name: Upload assets to GHCR
-        env:
-          DB_VERSION: ${{ steps.get_version.outputs.DB_VERSION }}
-        run: |
-          oras version
-          oras push --artifact-type application/vnd.aquasec.trivy.config.v1+json \
-          ghcr.io/deepfactor-io/javadependencydb:${DB_VERSION} \
-          javadependencydb.tar.gz:application/vnd.aquasec.trivy.javadb.layer.v1.tar+gzip
-
