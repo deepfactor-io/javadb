@@ -250,6 +250,8 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 			return xerrors.Errorf("unable to get list of sha1 files from %q: %s", dirURL, err)
 		}
 
+		dirVersionObj := Version{}
+
 		// Remove the `/` suffix to correctly compare file versions with version from directory name.
 		dirVersion := strings.TrimSuffix(dir, "/")
 		var dirVersionSha1 []byte
@@ -261,10 +263,8 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 			}
 			if ver := versionFromSha1URL(meta.ArtifactID, sha1Url); ver != "" && len(sha1) != 0 {
 
-				// This needs to be fixed
-				/**
 				// fetch license information on the basis of pom url
-				pomURL := getPomURL(baseURL, meta.ArtifactID, version)
+				pomURL := getPomURL(baseURL, meta.ArtifactID, ver)
 				pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
 				if err != nil {
 					log.Println(err)
@@ -280,26 +280,23 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 					dependencyList = append(dependencyList, fmt.Sprintf("%s:%s:%s", d.GroupID, d.ArtifactID, d.Version))
 				}
 
-				v := Version{
-					Version:    version,
-					SHA1:       sha1,
-					License:    strings.Join(licenseKeys, "|"),
-					Dependency: strings.Join(dependencyList, ","),
-				}
-
-				versions = append(versions, v)
-				**/
-
 				// Save sha1 for the file where the version is equal to the version from the directory name in order to remove duplicates later
 				// Avoid overwriting dirVersion when inserting versions into the database (sha1 is uniq blob)
 				// e.g. `cudf-0.14-cuda10-1.jar.sha1` should not overwrite `cudf-0.14.jar.sha1`
 				// https://repo.maven.apache.org/maven2/ai/rapids/cudf/0.14/
 				if ver == dirVersion {
 					dirVersionSha1 = sha1
+					// Add code
+					dirVersionObj.Version = dirVersion
+					dirVersionObj.SHA1 = sha1
+					dirVersionObj.License = strings.Join(licenseKeys, "|")
+					dirVersionObj.Dependency = strings.Join(dependencyList, ",")
 				} else {
 					versions = append(versions, Version{
-						Version: ver,
-						SHA1:    sha1,
+						Version:    ver,
+						SHA1:       sha1,
+						License:    strings.Join(licenseKeys, "|"),
+						Dependency: strings.Join(dependencyList, ","),
 					})
 				}
 			}
@@ -310,10 +307,11 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 		})
 
 		if dirVersionSha1 != nil {
-			versions = append(versions, Version{
-				Version: dirVersion,
-				SHA1:    dirVersionSha1,
-			})
+			// versions = append(versions, Version{
+			// 	Version: dirVersion,
+			// 	SHA1:    dirVersionSha1,
+			// })
+			versions = append(versions, dirVersionObj)
 		}
 
 		foundVersions = append(foundVersions, versions...)
