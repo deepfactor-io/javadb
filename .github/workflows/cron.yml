@@ -11,6 +11,7 @@ on:
         default: "3.8"
 env:
   GH_USER: aqua-bot
+permissions:
   packages: write # for GHCR
   contents: read
 jobs:
