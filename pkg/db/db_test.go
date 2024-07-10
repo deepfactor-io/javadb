@@ -18,8 +18,8 @@ var (
 	javaxServlet10Sha1b, _  = hex.DecodeString("5d4ae7a8a17a33e01283e76e0dff66c4bce6456a")
 	javaxServlet110Sha1b, _ = hex.DecodeString("bca201e52333629c59e459e874e5ecd8f9899e15")
 	bundlesSha1b, _         = hex.DecodeString("b65e1196b26baeeec951fef2fefd4357")
-
-	indexJstl = types.Index{
+	junitSHA, _             = hex.DecodeString("1013627e3993319870863a020034004717505815")
+	indexJstl               = types.Index{
 		GroupID:     "jstl",
 		ArtifactID:  "jstl",
 		Version:     "1.0",
