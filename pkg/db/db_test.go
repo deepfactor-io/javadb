@@ -198,7 +198,7 @@ func TestSelectIndexesByArtifactIDAndFileType(t *testing.T) {
 			name:        "index with license using artifactid and archivetype",
 			artifactID:  "junit",
 			archiveType: types.JarType,
-			want: []types.Index{
+			wantIndexes: []types.Index{
 				indexJunit,
 			},
 		},

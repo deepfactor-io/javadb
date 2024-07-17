@@ -250,7 +250,9 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 			return xerrors.Errorf("unable to get list of sha1 files from %q: %s", dirURL, err)
 		}
 
-		dirVersionObj := Version{}
+		// Skip parsing pom for dirVersion if already fetched
+		var dirVersionPomFetched bool
+		var dirVersionObj Version
 
 		// Remove the `/` suffix to correctly compare file versions with version from directory name.
 		dirVersion := strings.TrimSuffix(dir, "/")
@@ -262,6 +264,9 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 				return xerrors.Errorf("unable to fetch sha1: %s", err)
 			}
 			if ver := versionFromSha1URL(meta.ArtifactID, sha1Url); ver != "" && len(sha1) != 0 {
+				if ver == dirVersion && dirVersionPomFetched {
+					continue
+				}
 
 				// fetch license information on the basis of pom url
 				pomURL := getPomURL(baseURL, meta.ArtifactID, ver)
@@ -286,11 +291,15 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 				// https://repo.maven.apache.org/maven2/ai/rapids/cudf/0.14/
 				if ver == dirVersion {
 					dirVersionSha1 = sha1
-					// Add code
-					dirVersionObj.Version = dirVersion
-					dirVersionObj.SHA1 = sha1
-					dirVersionObj.License = strings.Join(licenseKeys, "|")
-					dirVersionObj.Dependency = strings.Join(dependencyList, ",")
+
+					if !dirVersionPomFetched {
+						dirVersionPomFetched = true
+
+						dirVersionObj.Version = dirVersion
+						dirVersionObj.SHA1 = sha1
+						dirVersionObj.License = strings.Join(licenseKeys, "|")
+						dirVersionObj.Dependency = strings.Join(dependencyList, ",")
+					}
 				} else {
 					versions = append(versions, Version{
 						Version:    ver,
