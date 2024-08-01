@@ -116,6 +116,11 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	crawlDone := make(chan struct{})
 
+	startTime := time.Now()
+	defer func() {
+		log.Printf("Total Time taken by the Crawler: %v", time.Since(startTime))
+	}()
+
 	// For the HTTP loop
 	go func() {
 		defer func() { crawlDone <- struct{}{} }()
@@ -147,6 +152,7 @@ loop:
 		case <-crawlDone:
 			break loop
 		case err := <-errCh:
+			log.Printf("Err! Found during Crawl's Visit API, error: %s", err.Error())
 			close(c.urlCh)
 			return err
 
@@ -224,7 +230,6 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			continue
 		}
 		if len(sha1) != 0 {
-
 			// fetch license information on the basis of pom url
 			pomURL := getPomURL(baseURL, meta.ArtifactID, version)
 			pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
@@ -302,12 +307,12 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 
 func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 	resp, err := c.http.Get(url)
+	if err != nil {
+		return nil, xerrors.Errorf("can't get sha1 from %s: %w", url, err)
+	}
 	// some projects don't have xxx.jar and xxx.jar.sha1 files
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
-	}
-	if err != nil {
-		return nil, xerrors.Errorf("can't get sha1 from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -462,29 +467,27 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	log.Println("Preparing license classifier data")
 
 	var licenseFiles []licenseFilesMeta
+	limit := semaphore.NewWeighted(c.opt.Limit)
 
 	// switch from concurrent to normal map
 	uniqLicenseKeyMap := c.uniqueLicenseKeys.Items()
 	uniqueLicenseKeyList := c.uniqueLicenseKeys.Keys()
-
-	client := http.Client{
-		Timeout: 10 * time.Second,
+	if len(uniqueLicenseKeyList) == 0 {
+		return licenseFiles, nil
 	}
+	log.Printf("Total license keys to be processed %d", len(uniqueLicenseKeyList))
 
 	licenseKeyChannel := make(chan string, len(uniqueLicenseKeyList))
+	errCh := make(chan error)
+	defer close(errCh)
 
-	log.Printf("Total license keys to be processed %d", len(uniqueLicenseKeyList))
+	// set max timeout for each request processed by the http client for license Meta URLs
+	c.http.HTTPClient.Timeout = 10 * time.Second
 
 	// dump license keys to the channel so that they can be processed
 	for _, key := range uniqueLicenseKeyList {
 		licenseKeyChannel <- key
 	}
-
-	limit := semaphore.NewWeighted(c.opt.Limit)
-
-	// error channel
-	errCh := make(chan error)
-	defer close(errCh)
 
 	// status channel to track processing of license keys
 	type status struct {
@@ -508,7 +511,7 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 
 				licenseFileName := getLicenseFileName(c.licensedir, licenseKey)
 				licenseMeta := uniqLicenseKeyMap[licenseKey]
-				ok, err := c.generateLicenseFile(client, licenseFileName, licenseMeta)
+				ok, err := c.generateLicenseFile(licenseFileName, licenseMeta)
 				if err != nil {
 					errCh <- xerrors.Errorf("generateLicenseFile error: %w", err)
 				}
@@ -526,51 +529,42 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	}()
 
 	count := 0
-loop:
 	for {
 		select {
 		case status := <-prepStatus:
-			count++
 			if status.Done {
 				licenseFiles = append(licenseFiles, status.Meta)
 			}
 
+			count++
 			if count%1000 == 0 {
 				log.Printf("Processed %d license keys", count)
 			}
 
 			if count == len(uniqueLicenseKeyList) {
 				close(licenseKeyChannel)
-				break loop
+
+				log.Println("Preparation of license classifier data completed")
+				return licenseFiles, nil
 			}
+
 		case err := <-errCh:
+			log.Printf("Error in generateLicenseFile, error: %s", err.Error())
 			close(licenseKeyChannel)
 			return licenseFiles, err
-
 		}
 	}
-
-	log.Println("Preparation of license classifier data completed")
-
-	return licenseFiles, nil
-
 }
 
-func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string, licenseMeta License) (bool, error) {
-
+func (c *Crawler) generateLicenseFile(
+	licenseFileName string,
+	licenseMeta License,
+) (bool, error) {
 	// if url not available then no point using the license classifier
 	// Names can be analyzed but in most cases license classifier does not result in any matches
 	if !strings.HasPrefix(licenseMeta.URL, "http") {
 		return false, nil
 	}
-
-	// create file
-	f, err := os.Create(licenseFileName)
-	if err != nil {
-		return false, err
-	}
-
-	defer f.Close()
 
 	// normalize github urls so that raw content is downloaded
 	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
@@ -586,19 +580,27 @@ func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string
 
 	}
 
-	// download license url contents
-	resp, err := client.Get(licenseMeta.URL)
+	// get license url contents
+	resp, err := c.http.Get(licenseMeta.URL)
 	if resp == nil {
+		log.Printf("Err! License Meta URL not accessible %s", licenseMeta.URL)
 		return false, nil
 	}
-
-	if resp.StatusCode == http.StatusNotFound {
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Err! while fetching license Meta URL %s, status code %d", licenseMeta.URL, resp.StatusCode)
 		return false, nil
 	}
 	if err != nil {
 		return false, nil
 	}
 	defer resp.Body.Close()
+
+	// create file
+	f, err := os.Create(licenseFileName)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
 
 	_, err = io.Copy(f, resp.Body)
 	if err != nil {
