@@ -152,7 +152,7 @@ loop:
 		case <-crawlDone:
 			break loop
 		case err := <-errCh:
-			log.Printf("Err! Found during Crawl's Visit API, error: %s", err.Error())
+			log.Printf("Error in Crawl's Visit API, error: %s", err.Error())
 			close(c.urlCh)
 			return err
 
@@ -525,7 +525,7 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 
 				licenseFileName := getLicenseFileName(c.licensedir, licenseKey)
 				licenseMeta := uniqLicenseKeyMap[licenseKey]
-				ok, err := c.GenerateLicenseFile(licenseFileName, licenseMeta)
+				ok, err := GenerateLicenseFile(c.http, licenseFileName, licenseMeta)
 				if err != nil {
 					errCh <- xerrors.Errorf("generateLicenseFile error: %w", err)
 				}
@@ -570,7 +570,8 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	}
 }
 
-func (c *Crawler) GenerateLicenseFile(
+func GenerateLicenseFile(
+	client *retryablehttp.Client,
 	licenseFileName string,
 	licenseMeta License,
 ) (bool, error) {
@@ -595,7 +596,7 @@ func (c *Crawler) GenerateLicenseFile(
 	}
 
 	// get license url contents
-	resp, err := c.http.Get(licenseMeta.URL)
+	resp, err := client.Get(licenseMeta.URL)
 	if err != nil {
 		log.Printf("Error while fetching license Meta URL, error %s", err.Error())
 		return false, nil
