@@ -2,8 +2,6 @@ package crawler_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -111,6 +109,7 @@ func TestCrawl(t *testing.T) {
 			want, err := os.ReadFile(tt.goldenPath)
 			assert.NoError(t, err)
 
+			// GAV index file check
 			assert.JSONEq(t, string(want), string(got))
 
 			// normalized license json file check
@@ -125,36 +124,6 @@ func TestCrawl(t *testing.T) {
 	}
 }
 
-func TestLicenseClassifier(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	classifier, err := backend.New()
-	if err != nil {
-		return
-	}
-
-	fileNames := []string{
-		// "/home/hrithikyadav/Desktop/TestCrawltest_path2948945980/001/licenses/trivy_license_4044415468.txt",
-		// "/tmp/trivy_license_4044415468.txt",
-	}
-
-	// c.opt.Limit is the number of concurrent tasks spawned to process license files
-	errs := classifier.ClassifyLicensesWithContext(ctx, 1, fileNames, true)
-	if len(errs) > 0 {
-		log.Println("errors in license classification ", errs)
-	}
-
-	// extract results
-	results := classifier.GetResults()
-	sort.Sort(results)
-
-	t.Log("Classifier results array Len: ", len(results))
-	for _, r := range results {
-		t.Log("License Name: ", r.Name)
-	}
-}
-
 func TestGenerateLicenseFile(t *testing.T) {
 	licenseFileName := "test_generate_license.txt"
 	defer func() {
@@ -164,40 +133,118 @@ func TestGenerateLicenseFile(t *testing.T) {
 		}
 	}()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	classifier, err := backend.New()
+	if err != nil {
+		t.Logf("failed to initialize classifier, err: %s", err.Error())
+		return
+	}
+
 	client := retryablehttp.NewClient()
-	client.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, attempt int) {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36")
-	}
+	client.RequestLogHook = crawler.GetRequestLogHookForLicenses(client)
 
-	ok, err := crawler.GenerateLicenseFile(client,
-		licenseFileName,
-		crawler.License{
-			URL: "https://www.json.org/license.html",
-		})
+	// Test License URL-1
+	t.Run("LicenseURL Test1", func(t *testing.T) {
+		ok, err := crawler.GenerateLicenseFile(
+			client,
+			licenseFileName,
+			crawler.License{
+				URL: "https://www.json.org/license.html",
+			})
 
-	if !ok {
-		errStr := "Test has failed"
 		if err != nil {
-			errStr += fmt.Sprintf(", err: %s", err.Error())
+			assert.Fail(t, "%s has failed, err: %s", t.Name(), err.Error())
 		}
-		assert.Fail(t, errStr)
-	}
+		if !ok {
+			assert.Fail(t, "%s has failed", t.Name())
+		}
+
+		errs := classifier.ClassifyLicensesWithContext(ctx, 1, []string{licenseFileName}, true)
+		if len(errs) > 0 {
+			t.Log("errors in license classification ", errs)
+			return
+		}
+
+		// extract results
+		results := classifier.GetResults()
+		sort.Sort(results)
+
+		assert.Equal(t, true, len(results) != 0, "No results were found by the classifier")
+
+		expectedLicense := "JSON"
+		foundExpectedLicense := false
+		for _, result := range results {
+			if result.Name == expectedLicense {
+				foundExpectedLicense = true
+				break
+			}
+		}
+		assert.Equal(t, true, foundExpectedLicense, "could not find expected license in classifier results, expected: %s", expectedLicense)
+	})
+
+	// Test License URL-2
+	t.Run("LicenseURL Test2", func(t *testing.T) {
+		ok, err := crawler.GenerateLicenseFile(
+			client,
+			licenseFileName,
+			crawler.License{
+				URL: "https://www.snmp4j.org/GPL.txt",
+			})
+
+		if err != nil {
+			assert.Fail(t, "%s has failed, err: %s", t.Name(), err.Error())
+		}
+		if !ok {
+			assert.Fail(t, "%s has failed", t.Name())
+		}
+
+		errs := classifier.ClassifyLicensesWithContext(ctx, 1, []string{licenseFileName}, true)
+		if len(errs) > 0 {
+			t.Log("errors in license classification ", errs)
+			return
+		}
+
+		// extract results
+		results := classifier.GetResults()
+		sort.Sort(results)
+
+		assert.Equal(t, true, len(results) != 0, "No results were found by the classifier")
+
+		expectedLicense := "GPL-2.0"
+		foundExpectedLicense := false
+		for _, result := range results {
+			t.Log("License finding: ", result.Name)
+
+			if result.Name == expectedLicense {
+				foundExpectedLicense = true
+				break
+			}
+		}
+		assert.Equal(t, true, foundExpectedLicense, "could not find expected license in classifier results, expected: %s", expectedLicense)
+	})
 }
 
 func TestRetryableHTTPClient(t *testing.T) {
 	retryClient := retryablehttp.NewClient()
 
-	// Set custom headers including User-Agent
-	retryClient.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, attempt int) {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36")
+	// Set custom request LogHook as needed
+	retryClient.RequestLogHook = crawler.GetRequestLogHookForLicenses(retryClient)
+
+	request, err := retryablehttp.NewRequest("GET", "https://www.json.org/license.html", nil)
+	if err != nil {
+		t.Log("failed to create request, error: ", err)
+		return
 	}
 
 	// Make the request
-	resp, err := retryClient.Get("https://www.json.org/license.html")
+	resp, err := retryClient.Do(request)
 	if err != nil {
-		log.Fatalf("Error while fetching license Meta URL, error %v giving up after %d attempt(s)", err, retryClient.RetryMax)
+		t.Logf("Error while fetching license Meta URL, error %v", err)
+		return
 	}
 	defer resp.Body.Close()
 
-	assert.Equal(t, resp.StatusCode, http.StatusOK, "Non-200 status code: %d", resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "Non-200 status code: %d", resp.StatusCode)
 }

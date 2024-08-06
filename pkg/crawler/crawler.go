@@ -1,6 +1,8 @@
 package crawler
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/xml"
@@ -14,6 +16,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
@@ -64,6 +69,9 @@ type licenseFilesMeta struct {
 func NewCrawler(opt Option) Crawler {
 	client := retryablehttp.NewClient()
 	client.Logger = nil
+
+	// set max timeout for each request processed by the retryable http client
+	client.HTTPClient.Timeout = 10 * time.Second
 
 	if opt.RootUrl == "" {
 		opt.RootUrl = mavenRepoURL
@@ -481,20 +489,11 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	errCh := make(chan error)
 	defer close(errCh)
 
-	// set max timeout for each request processed by the http client for license Meta URLs
-	c.http.HTTPClient.Timeout = 10 * time.Second
-
-	// Set custom headers including User-Agent
-	// Reason: Certain URLs ex: https://www.snmp4j.org/GPL.txt, https://www.json.org/license.html
-	// give 503 error response when programatically accessed but when accessed from browser, we get valid response
-	// so to avoid these, we mimick the URLs as if URLs are sent from browser
-	c.http.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, attempt int) {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36")
-	}
+	// Set custom request LogHook as needed
+	c.http.RequestLogHook = GetRequestLogHookForLicenses(c.http)
 
 	defer func() {
 		// reset the values set above
-		c.http.HTTPClient.Timeout = 0
 		c.http.RequestLogHook = nil
 	}()
 
@@ -607,17 +606,84 @@ func GenerateLicenseFile(
 	}
 	defer resp.Body.Close()
 
-	// create file
-	f, err := os.Create(licenseFileName)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, resp.Body)
+	err = handleCompressedResponsebody(resp, licenseFileName)
 	if err != nil {
 		return false, nil
 	}
 
 	return true, nil
+}
+
+func handleCompressedResponsebody(resp *http.Response, licenseFileName string) error {
+	var reader io.Reader = resp.Body
+	var contentEncoding string = resp.Header.Get("Content-Encoding")
+
+	switch contentEncoding {
+	case "gzip":
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			return err
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+
+	case "br":
+		reader = brotli.NewReader(reader)
+
+	case "deflate":
+		deflateReader := flate.NewReader(reader)
+		defer deflateReader.Close()
+		reader = deflateReader
+
+	case "zstd":
+		zstdReader, err := zstd.NewReader(reader)
+		if err != nil {
+			return err
+		}
+		defer zstdReader.Close()
+		reader = zstdReader
+
+	default:
+		if len(contentEncoding) > 0 {
+			log.Printf(
+				"Unknown Content-Encoding header in license response: %s",
+				resp.Header.Get("Content-Encoding"),
+			)
+		}
+	}
+
+	// write the body to given file
+	fp, err := os.Create(licenseFileName)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+
+	_, err = io.Copy(fp, reader)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Func returns the custom request log hook required for fetching license URLs
+func GetRequestLogHookForLicenses(client *retryablehttp.Client) retryablehttp.RequestLogHook {
+	return func(logger retryablehttp.Logger, req *http.Request, attempt int) {
+		if attempt != client.RetryMax {
+			return
+		}
+
+		// only on last attempt, we set the request headers to mimick the browser
+		// Reason: Certain URLs ex: https://www.snmp4j.org/GPL.txt, https://www.json.org/license.html
+		// give 503 error response when programatically accessed but when accessed from browser, we get valid response
+		// so to avoid these, we mimick the URLs as if URLs are sent from browser
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		req.Header.Set("Connection", "keep-alive")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		req.Header.Set("Cache-Control", "no-cache")
+	}
 }
