@@ -89,11 +89,11 @@ func parseAndSubstitutePom(url string) (PomProject, error) {
 	var project PomProject
 
 	resp, err := http.Get(url)
-	if resp.StatusCode == http.StatusNotFound {
-		return project, nil
-	}
 	if err != nil {
 		return project, xerrors.Errorf("can't get pom xml from %s: %w", url, err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return project, nil
 	}
 	defer resp.Body.Close()
 

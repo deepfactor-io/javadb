@@ -1,0 +1,13 @@
+{
+  "GroupID": "org.hibernate",
+  "ArtifactID": "hibernate-core",
+  "Versions": [
+    {
+      "Version": "5.4.9.Final",
+      "SHA1": "an77voielkSxY/XMA5Nrfis2ApM=",
+      "License": "4044415468",
+      "Dependency": "org.jboss.logging:jboss-logging:3.3.2.Final,javax.persistence:javax.persistence-api:2.2,org.javassist:javassist:3.24.0-GA,net.bytebuddy:byte-buddy:1.10.2,antlr:antlr:2.7.7,org.jboss.spec.javax.transaction:jboss-transaction-api_1.2_spec:1.1.1.Final,org.jboss:jandex:2.1.1.Final,com.fasterxml:classmate:1.5.1,javax.activation:javax.activation-api:1.2.0,org.dom4j:dom4j:2.1.1,org.hibernate.common:hibernate-commons-annotations:5.1.0.Final,javax.xml.bind:jaxb-api:2.3.1,org.glassfish.jaxb:jaxb-runtime:2.3.1"
+    }
+  ],
+  "ArchiveType": "jar"
+}

@@ -1,6 +1,8 @@
 package crawler
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/xml"
@@ -14,6 +16,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
@@ -64,6 +69,9 @@ type licenseFilesMeta struct {
 func NewCrawler(opt Option) Crawler {
 	client := retryablehttp.NewClient()
 	client.Logger = nil
+
+	// set max timeout for each request processed by the retryable http client
+	client.HTTPClient.Timeout = 10 * time.Second
 
 	if opt.RootUrl == "" {
 		opt.RootUrl = mavenRepoURL
@@ -116,6 +124,11 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 
 	crawlDone := make(chan struct{})
 
+	startTime := time.Now()
+	defer func() {
+		log.Printf("Total Time taken by the Crawler: %v", time.Since(startTime))
+	}()
+
 	// For the HTTP loop
 	go func() {
 		defer func() { crawlDone <- struct{}{} }()
@@ -147,6 +160,7 @@ loop:
 		case <-crawlDone:
 			break loop
 		case err := <-errCh:
+			log.Printf("Error in Crawl's Visit API, error: %s", err.Error())
 			close(c.urlCh)
 			return err
 
@@ -224,7 +238,6 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 			continue
 		}
 		if len(sha1) != 0 {
-
 			// fetch license information on the basis of pom url
 			pomURL := getPomURL(baseURL, meta.ArtifactID, version)
 			pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
@@ -302,12 +315,12 @@ func (c *Crawler) parseMetadata(url string) (*Metadata, error) {
 
 func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 	resp, err := c.http.Get(url)
+	if err != nil {
+		return nil, xerrors.Errorf("can't get sha1 from %s: %w", url, err)
+	}
 	// some projects don't have xxx.jar and xxx.jar.sha1 files
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil // TODO add special error for this
-	}
-	if err != nil {
-		return nil, xerrors.Errorf("can't get sha1 from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -462,29 +475,32 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	log.Println("Preparing license classifier data")
 
 	var licenseFiles []licenseFilesMeta
+	limit := semaphore.NewWeighted(c.opt.Limit)
 
 	// switch from concurrent to normal map
 	uniqLicenseKeyMap := c.uniqueLicenseKeys.Items()
 	uniqueLicenseKeyList := c.uniqueLicenseKeys.Keys()
-
-	client := http.Client{
-		Timeout: 10 * time.Second,
+	if len(uniqueLicenseKeyList) == 0 {
+		return licenseFiles, nil
 	}
+	log.Printf("Total license keys to be processed %d", len(uniqueLicenseKeyList))
 
 	licenseKeyChannel := make(chan string, len(uniqueLicenseKeyList))
+	errCh := make(chan error)
+	defer close(errCh)
 
-	log.Printf("Total license keys to be processed %d", len(uniqueLicenseKeyList))
+	// Set custom request LogHook as needed
+	c.http.RequestLogHook = GetRequestLogHookForLicenses(c.http)
+
+	defer func() {
+		// reset the values set above
+		c.http.RequestLogHook = nil
+	}()
 
 	// dump license keys to the channel so that they can be processed
 	for _, key := range uniqueLicenseKeyList {
 		licenseKeyChannel <- key
 	}
-
-	limit := semaphore.NewWeighted(c.opt.Limit)
-
-	// error channel
-	errCh := make(chan error)
-	defer close(errCh)
 
 	// status channel to track processing of license keys
 	type status struct {
@@ -508,7 +524,7 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 
 				licenseFileName := getLicenseFileName(c.licensedir, licenseKey)
 				licenseMeta := uniqLicenseKeyMap[licenseKey]
-				ok, err := c.generateLicenseFile(client, licenseFileName, licenseMeta)
+				ok, err := GenerateLicenseFile(c.http, licenseFileName, licenseMeta)
 				if err != nil {
 					errCh <- xerrors.Errorf("generateLicenseFile error: %w", err)
 				}
@@ -526,51 +542,43 @@ func (c *Crawler) prepareClassifierData(ctx context.Context) ([]licenseFilesMeta
 	}()
 
 	count := 0
-loop:
 	for {
 		select {
 		case status := <-prepStatus:
-			count++
 			if status.Done {
 				licenseFiles = append(licenseFiles, status.Meta)
 			}
 
+			count++
 			if count%1000 == 0 {
 				log.Printf("Processed %d license keys", count)
 			}
 
 			if count == len(uniqueLicenseKeyList) {
 				close(licenseKeyChannel)
-				break loop
+
+				log.Println("Preparation of license classifier data completed")
+				return licenseFiles, nil
 			}
+
 		case err := <-errCh:
+			log.Printf("Error in generateLicenseFile, error: %s", err.Error())
 			close(licenseKeyChannel)
 			return licenseFiles, err
-
 		}
 	}
-
-	log.Println("Preparation of license classifier data completed")
-
-	return licenseFiles, nil
-
 }
 
-func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string, licenseMeta License) (bool, error) {
-
+func GenerateLicenseFile(
+	client *retryablehttp.Client,
+	licenseFileName string,
+	licenseMeta License,
+) (bool, error) {
 	// if url not available then no point using the license classifier
 	// Names can be analyzed but in most cases license classifier does not result in any matches
 	if !strings.HasPrefix(licenseMeta.URL, "http") {
 		return false, nil
 	}
-
-	// create file
-	f, err := os.Create(licenseFileName)
-	if err != nil {
-		return false, err
-	}
-
-	defer f.Close()
 
 	// normalize github urls so that raw content is downloaded
 	// Eg. https://github.com/dom4j/dom4j/blob/master/LICENSE -> https://raw.githubusercontent.com/dom4j/dom4j/master/LICENSE
@@ -586,24 +594,96 @@ func (c *Crawler) generateLicenseFile(client http.Client, licenseFileName string
 
 	}
 
-	// download license url contents
+	// get license url contents
 	resp, err := client.Get(licenseMeta.URL)
-	if resp == nil {
-		return false, nil
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
 	if err != nil {
+		log.Printf("Error while fetching license Meta URL, error %s", err.Error())
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Error while fetching license Meta URL %s, status code %d", licenseMeta.URL, resp.StatusCode)
 		return false, nil
 	}
 	defer resp.Body.Close()
 
-	_, err = io.Copy(f, resp.Body)
+	err = handleCompressedResponsebody(resp, licenseFileName)
 	if err != nil {
 		return false, nil
 	}
 
 	return true, nil
+}
+
+func handleCompressedResponsebody(resp *http.Response, licenseFileName string) error {
+	var reader io.Reader = resp.Body
+	var contentEncoding string = resp.Header.Get("Content-Encoding")
+
+	switch contentEncoding {
+	case "gzip":
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			return err
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+
+	case "br":
+		reader = brotli.NewReader(reader)
+
+	case "deflate":
+		deflateReader := flate.NewReader(reader)
+		defer deflateReader.Close()
+		reader = deflateReader
+
+	case "zstd":
+		zstdReader, err := zstd.NewReader(reader)
+		if err != nil {
+			return err
+		}
+		defer zstdReader.Close()
+		reader = zstdReader
+
+	default:
+		if len(contentEncoding) > 0 {
+			log.Printf(
+				"Unknown Content-Encoding header in license response: %s",
+				resp.Header.Get("Content-Encoding"),
+			)
+		}
+	}
+
+	// write the body to given file
+	fp, err := os.Create(licenseFileName)
+	if err != nil {
+		return err
+	}
+	defer fp.Close()
+
+	_, err = io.Copy(fp, reader)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Func returns the custom request log hook required for fetching license URLs
+func GetRequestLogHookForLicenses(client *retryablehttp.Client) retryablehttp.RequestLogHook {
+	return func(logger retryablehttp.Logger, req *http.Request, attempt int) {
+		if attempt != client.RetryMax {
+			return
+		}
+
+		// only on last attempt, we set the request headers to mimick the browser
+		// Reason: Certain URLs ex: https://www.snmp4j.org/GPL.txt, https://www.json.org/license.html
+		// give 503 error response when programatically accessed but when accessed from browser, we get valid response
+		// so to avoid these, we mimick the URLs as if URLs are sent from browser
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		req.Header.Set("Connection", "keep-alive")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		req.Header.Set("Cache-Control", "no-cache")
+	}
 }
