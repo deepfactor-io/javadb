@@ -1,8 +1,8 @@
 ---
-name: Trivy Java DB for latest version
+name: Trivy Java DB
 on:
   schedule:
-    - cron: "0 1 */2 * *" # runs on  every 2days at 1am
+    - cron: "0 0 * * *" # update indexes every day in 00:00
   workflow_dispatch:
     inputs:
       buildBranch:
@@ -11,6 +11,7 @@ on:
         default: "3.8-DEEP-10160"
 env:
   GH_USER: aqua-bot
+permissions:
   packages: write # for GHCR
   contents: read
 jobs:
