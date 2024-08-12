@@ -10,14 +10,12 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
 	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
-	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/samber/lo"
 
 	"github.com/PuerkitoBio/goquery"
@@ -83,18 +81,6 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	log.Println("Crawl maven repository and save indexes")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	app, err := newrelic.NewApplication(
-		newrelic.ConfigAppName("dfjavadb"),
-		newrelic.ConfigLicense(""),
-		newrelic.ConfigAppLogForwardingEnabled(true),
-	)
-	if err != nil {
-		fmt.Println("some error")
-	}
-
-	txn := app.StartTransaction("javadb_logs")
-	defer txn.End()
 
 	errCh := make(chan error)
 	defer close(errCh)
@@ -264,16 +250,8 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 				if err != nil {
 					log.Println(err)
 				}
-				licenseKeys := lo.Uniq(pomValues.Licenses)
-				sort.Strings(licenseKeys)
 
-				dependencyList := make([]string, 0)
-				for _, d := range pomValues.Dependencies {
-					if (d.Scope != "" && d.Scope != "compile") || d.Optional {
-						continue
-					}
-					dependencyList = append(dependencyList, fmt.Sprintf("%s:%s:%s", d.GroupID, d.ArtifactID, d.Version))
-				}
+				deps := pomValues.Dependencies
 
 				// Save sha1 for the file where the version is equal to the version from the directory name in order to remove duplicates later
 				// Avoid overwriting dirVersion when inserting versions into the database (sha1 is uniq blob)
@@ -287,15 +265,13 @@ func (c *Crawler) crawlSHA1(ctx context.Context, baseURL string, meta *Metadata,
 
 						dirVersionObj.Version = dirVersion
 						dirVersionObj.SHA1 = sha1
-						dirVersionObj.License = strings.Join(licenseKeys, "|")
-						dirVersionObj.Dependency = strings.Join(dependencyList, ",")
+						dirVersionObj.Dependency = strings.Join(deps, ",")
 					}
 				} else {
 					versions = append(versions, Version{
 						Version:    ver,
 						SHA1:       sha1,
-						License:    strings.Join(licenseKeys, "|"),
-						Dependency: strings.Join(dependencyList, ","),
+						Dependency: strings.Join(deps, ","),
 					})
 				}
 			}
@@ -473,4 +449,29 @@ func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error
 
 	return pomParsedValues, nil
 
+}
+
+func versionFromSha1URL(artifactId, sha1URL string) string {
+	ss := strings.Split(sha1URL, "/")
+	fileName := ss[len(ss)-1]
+	if !strings.HasPrefix(fileName, artifactId) {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(fileName, artifactId+"-"), ".jar.sha1")
+}
+
+// linkFromSelection returns the link from goquery.Selection.
+// There are times when maven breaks `text` - it removes part of the `text` and adds the suffix `...` (`.../` for dirs).
+// e.g. `<a href="v1.1.0-226-g847ecff2d8e26f249422247d7665fe15f07b1744/">v1.1.0-226-g847ecff2d8e26f249422247d7665fe15.../</a>`
+// In this case we should take `href`.
+// But we don't need to get `href` if the text isn't broken.
+// To avoid checking unnecessary links.
+// e.g. `<pre id="contents"><a href="https://repo.maven.apache.org/maven2/abbot/">../</a>`
+func linkFromSelection(selection *goquery.Selection) string {
+	link := selection.Text()
+	// maven uses `.../` suffix for dirs and `...` suffix for files.
+	if href, ok := selection.Attr("href"); ok && (strings.HasSuffix(link, ".../") || (strings.HasSuffix(link, "..."))) {
+		link = href
+	}
+	return link
 }
