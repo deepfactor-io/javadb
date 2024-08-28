@@ -15,7 +15,7 @@ import (
 
 const (
 	dbFileName    = "df-java.db"
-	SchemaVersion = 3
+	SchemaVersion = 4
 	// This version is being referred in the workflow file. It will impact the version of db being pushed to GHCR. Make sure you double check before making any changes.
 )
 
