@@ -20,6 +20,7 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
 	"github.com/google/licenseclassifier/v2/tools/identify_license/backend"
@@ -352,29 +353,53 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 }
 
 func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
+	// var pomParsedValues PomParsedValues
+	// pomXml, err := parseAndSubstitutePom(url)
+	// if err != nil {
+	// 	return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
+	// }
+
+	// if len(pomXml.Licenses) == 0 && len(pomXml.Dependencies) == 0 {
+	// 	return pomParsedValues, nil
+	// }
+
+	// for _, l := range pomXml.Licenses {
+	// 	l.LicenseKey = getLicenseKey(l)
+
+	// 	// update uniqueLicenseKeys map
+	// 	c.uniqueLicenseKeys.Set(l.LicenseKey, l)
+
+	// 	pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+	// }
+
+	// pomParsedValues.Dependencies = pomXml.Dependencies
+
+	// return pomParsedValues, nil
+
 	var pomParsedValues PomParsedValues
-	pomXml, err := parseAndSubstitutePom(url)
+
+	parser := pom.NewParser(c.http)
+
+	pomXml, deps, err := parser.Parse(url)
 	if err != nil {
 		return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
 	}
-
-	if len(pomXml.Licenses) == 0 && len(pomXml.Dependencies) == 0 {
+	// Test this
+	if pomXml == nil {
 		return pomParsedValues, nil
 	}
 
-	for _, l := range pomXml.Licenses {
-		l.LicenseKey = getLicenseKey(l)
-
-		// update uniqueLicenseKeys map
-		c.uniqueLicenseKeys.Set(l.LicenseKey, l)
-
-		pomParsedValues.Licenses = append(pomParsedValues.Licenses, l.LicenseKey)
+	dependencies := make([]Dependency, 0)
+	for _, v := range deps {
+		dependencies = append(dependencies, Dependency{
+			GroupID:    v.GroupID,
+			ArtifactID: v.ArtifactID,
+			Version:    v.Version.String(),
+		})
 	}
-
-	pomParsedValues.Dependencies = pomXml.Dependencies
+	pomParsedValues.Dependencies = dependencies
 
 	return pomParsedValues, nil
-
 }
 
 func (c *Crawler) classifyLicense(ctx context.Context) error {
