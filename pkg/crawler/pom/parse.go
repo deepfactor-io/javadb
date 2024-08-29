@@ -55,127 +55,9 @@ func (p *Parser) Parse(url string) (*pomXML, []string, error) {
 		deps = append(deps, fmt.Sprintf("%v:%v:%v", v.GroupID, v.ArtifactID, v.Version))
 	}
 
-	return content, deps, nil
+	return root.content, deps, nil
 
 }
-
-// func (p *Parser) parseRoot(root artifact) ([]Library, []Dependency, error) {
-
-// 	// Prepare a queue for dependencies
-// 	queue := newArtifactQueue()
-
-// 	// Enqueue root POM
-// 	root.Root = true
-// 	root.Module = false
-// 	queue.enqueue(root)
-
-// 	var (
-// 		libs              []Library
-// 		deps              []Dependency
-// 		rootDepManagement []pomDependency
-// 		uniqArtifacts     = map[string]artifact{}
-// 		uniqDeps          = map[string][]string{}
-// 	)
-
-// 	// Iterate direct and transitive dependencies
-// 	for !queue.IsEmpty() {
-// 		art := queue.dequeue()
-
-// 		// Modules should be handled separately so that they can have independent dependencies.
-// 		// It means multi-module allows for duplicate dependencies.
-// 		if art.Module {
-// 			moduleLibs, moduleDeps, err := p.parseRoot(art)
-// 			if err != nil {
-// 				return nil, nil, err
-// 			}
-// 			libs = append(libs, moduleLibs...)
-// 			if moduleDeps != nil {
-// 				deps = append(deps, moduleDeps...)
-// 			}
-// 			continue
-// 		}
-
-// 		// For soft requirements, skip dependency resolution that has already been resolved.
-// 		if uniqueArt, ok := uniqArtifacts[art.Name()]; ok {
-// 			if !uniqueArt.Version.shouldOverride(art.Version) {
-// 				continue
-// 			}
-// 			// mark artifact as Direct, if saved artifact is Direct
-// 			// take a look `hard requirement for the specified version` test
-// 			if uniqueArt.Direct {
-// 				art.Direct = true
-// 			}
-// 		}
-
-// 		result, err := p.resolve(art, rootDepManagement)
-// 		if err != nil {
-// 			return nil, nil, xerrors.Errorf("resolve error (%s): %w", art, err)
-// 		}
-
-// 		if art.Root {
-// 			// Managed dependencies in the root POM affect transitive dependencies
-// 			rootDepManagement = p.resolveDepManagement(result.properties, result.dependencyManagement)
-
-// 			// mark root artifact and its dependencies as Direct
-// 			art.Direct = true
-// 			result.dependencies = lo.Map(result.dependencies, func(dep artifact, _ int) artifact {
-// 				dep.Direct = true
-// 				return dep
-// 			})
-// 		}
-
-// 		// Resolve transitive dependencies later
-// 		queue.enqueue(result.dependencies...)
-
-// 		// Offline mode may be missing some fields.
-// 		if !art.IsEmpty() {
-// 			// Override the version
-// 			uniqArtifacts[art.Name()] = artifact{
-// 				Version: art.Version,
-// 				// Licenses: result.artifact.Licenses,
-// 				Direct: art.Direct,
-// 			}
-
-// 			// save only dependency names
-// 			// version will be determined later
-// 			dependsOn := lo.Map(result.dependencies, func(a artifact, _ int) string {
-// 				return a.Name()
-// 			})
-// 			uniqDeps[packageID(art.Name(), art.Version.String())] = dependsOn
-// 		}
-// 	}
-
-// 	// Convert to []types.Library and []types.Dependency
-// 	for name, art := range uniqArtifacts {
-// 		lib := Library{
-// 			ID:      packageID(name, art.Version.String()),
-// 			Name:    name,
-// 			Version: art.Version.String(),
-// 			// License:  art.JoinLicenses(),
-// 			Indirect: !art.Direct,
-// 		}
-// 		libs = append(libs, lib)
-
-// 		// Convert dependency names into dependency IDs
-// 		dependsOn := lo.FilterMap(uniqDeps[lib.ID], func(dependOnName string, _ int) (string, bool) {
-// 			ver := depVersion(dependOnName, uniqArtifacts)
-// 			return packageID(dependOnName, ver), ver != ""
-// 		})
-
-// 		sort.Strings(dependsOn)
-// 		if len(dependsOn) > 0 {
-// 			deps = append(deps, Dependency{
-// 				ID:        lib.ID,
-// 				DependsOn: dependsOn,
-// 			})
-// 		}
-// 	}
-
-// 	sort.Sort(Libraries(libs))
-// 	sort.Sort(Dependencies(deps))
-
-// 	return libs, deps, nil
-// }
 
 // depVersion finds dependency in uniqArtifacts and return its version
 func depVersion(depName string, uniqArtifacts map[string]artifact) string {
@@ -214,7 +96,6 @@ type analysisResult struct {
 	dependencies         []artifact
 	dependencyManagement []pomDependency // Keep the order of dependencies in 'dependencyManagement'
 	properties           map[string]string
-	// modules              []string
 }
 
 type analysisOptions struct {

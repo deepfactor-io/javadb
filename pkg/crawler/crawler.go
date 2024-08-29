@@ -9,15 +9,12 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
 	"github.com/deepfactor-io/javadb/pkg/crawler/pom"
 	"github.com/deepfactor-io/javadb/pkg/fileutil"
 	"github.com/deepfactor-io/javadb/pkg/types"
-	"github.com/newrelic/go-agent/v3/newrelic"
-	"github.com/samber/lo"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
@@ -47,11 +44,6 @@ type Option struct {
 	CacheDir string
 }
 
-type licenseFilesMeta struct {
-	FileName string
-	License
-}
-
 func NewCrawler(opt Option) Crawler {
 	client := retryablehttp.NewClient()
 	client.Logger = nil
@@ -76,18 +68,6 @@ func NewCrawler(opt Option) Crawler {
 
 func (c *Crawler) Crawl(ctx context.Context) error {
 	log.Println("Crawl maven repository and save indexes")
-
-	app, err := newrelic.NewApplication(
-		newrelic.ConfigAppName("dfjavadb"),
-		newrelic.ConfigLicense(""),
-		newrelic.ConfigAppLogForwardingEnabled(true),
-	)
-	if err != nil {
-		fmt.Println("some error")
-	}
-
-	txn := app.StartTransaction("javadb_logs")
-	defer txn.End()
 
 	errCh := make(chan error)
 	defer close(errCh)
@@ -218,19 +198,15 @@ func (c *Crawler) crawlSHA1(baseURL string, meta *Metadata) error {
 
 			// fetch license information on the basis of pom url
 			pomURL := getPomURL(baseURL, meta.ArtifactID, version)
-			pomValues, err := c.parsePomForLicensesAndDeps(pomURL)
+			parser := pom.NewParser()
+			_, deps, err := parser.Parse(pomURL)
 			if err != nil {
-				log.Println(err)
+				continue
 			}
-			licenseKeys := lo.Uniq(pomValues.Licenses)
-			sort.Strings(licenseKeys)
-
-			deps := pomValues.Dependencies
 
 			v := Version{
 				Version:    version,
 				SHA1:       sha1,
-				License:    strings.Join(licenseKeys, "|"),
 				Dependency: strings.Join(deps, ","),
 			}
 
@@ -321,26 +297,4 @@ func (c *Crawler) fetchSHA1(url string) ([]byte, error) {
 		return nil, xerrors.Errorf("failed to decode sha1 %s: %w", url, err)
 	}
 	return sha1b, nil
-}
-
-func (c *Crawler) parsePomForLicensesAndDeps(url string) (PomParsedValues, error) {
-
-	var pomParsedValues PomParsedValues
-
-	parser := pom.NewParser()
-
-	pomXml, deps, err := parser.Parse(url)
-	if err != nil {
-		return pomParsedValues, xerrors.Errorf("can't parse pom xml from %s: %w", url, err)
-	}
-
-	// Test this
-	if pomXml == nil {
-		return pomParsedValues, nil
-	}
-
-	pomParsedValues.Dependencies = deps
-
-	return pomParsedValues, nil
-
 }
